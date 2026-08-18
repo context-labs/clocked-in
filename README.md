@@ -86,11 +86,12 @@ You can also target specific agents: `clocked-in install claude-code grok`.
 | Claude Code | `UserPromptSubmit`/`Stop` hooks | `~/.claude/settings.json` (merged) |
 | Codex | `UserPromptSubmit`/`Stop` hooks | `~/.codex/hooks.json` (merged) |
 | Grok | Claude-compatible hooks | `~/.grok/hooks/clocked-in.json` |
-| Cursor (IDE + `cursor-agent`) | `beforeSubmitPrompt`/`stop` hooks | `~/.cursor/hooks.json` (merged) |
-| opencode | plugin (`session.idle`) | `~/.config/opencode/plugin/clocked-in.ts` ¹ |
+| Cursor (IDE + `cursor-agent`) | `beforeSubmitPrompt`/`stop` + tool hooks | `~/.cursor/hooks.json` (merged) |
+| opencode | plugin (`session.idle` + `tool.execute.*`) | `~/.config/opencode/plugin/clocked-in.ts` |
 | pi | extension | `~/.config/pi/extensions/clocked-in.ts` ¹ |
 
-¹ Written from each tool's docs; verify after install (they weren't runtime-tested).
+All hook agents also register `PreToolUse`/`PostToolUse` for per-tool timing.
+¹ pi's installer is written from docs and not yet runtime-verified; the others are.
 
 `install --all` only touches agents actually present on your machine.
 
@@ -101,22 +102,46 @@ drafted tweet to your clipboard, and opens the X compose window. The image is
 self-contained (bundled font) so it looks identical everywhere. `--no-open`
 skips the clipboard/browser side effects; `--out <path>` picks the file.
 
-## Breakdown by model & reasoning effort
+## Human wait vs agent-time
 
-`report` and the TUI also break your wait down **per harness → model → effort**:
+Cumulative wait double-counts agents you ran **at the same time** — 10 agents
+working 1h each isn't 10h of your life. `clocked-in` reports both:
+
+- **Human wait** — the union of all busy intervals: the real time *you* sat
+  waiting, overlapping work counted once.
+- **Agent-time** — the raw sum across turns (what each agent cost, added up).
+
+```
+  Human wait:   6h 12m  ← real time you sat waiting
+  Agent-time:   15h 34m  across 318 turns (sums concurrent agents)
+  Saved by //:  9h 22m  ran concurrently
+```
+
+## Breakdown by model, effort, tool & action
+
+`report` and the TUI break your wait down several ways:
 
 ```
   By model & effort:
     claude-code
       claude-opus-4-8        high         9h 21m  (188 turns)
-      claude-sonnet-4        medium       1h 02m  (12 turns)
     codex
       gpt-5.6-terra          xhigh        3h 21m  (41 turns)
+
+  By action:          By tool:
+    run      3h 02m     Bash        3h 02m
+    edit     1h 30m     Edit        1h 30m
+    read       48m      Read          48m
+    mcp        22m      mcp__linear   22m
 ```
 
-Model and effort are read on `stop` from the harness's transcript (Claude Code
-records `message.model` + `effort`) or from the hook's stdin (Codex/Grok expose
-`model`). When a harness exposes neither, the turn buckets as `unknown` / `—`.
+- **model / effort** — read on `stop` from the transcript (Claude records
+  `message.model` + `effort`) or hook stdin (Codex/Grok/Cursor expose `model`).
+- **tool** — exact tool name, timed `PreToolUse`→`PostToolUse`.
+- **action** — the tool's category (run / edit / read / search / subagent / mcp / web).
+
+All events are stored raw (timestamp, agent, session, model, effort, tool, cwd),
+so richer views like time-of-day heatmaps can be added later without re-recording.
 
 ## How it works
 
@@ -140,10 +165,15 @@ bun run build       # rebuild dist/cli.js (the committed, bundled bin) — commi
 task fmt
 ```
 
-`dist/cli.js` is a **committed** single-file bundle (Ink + React + commander
-inlined so a nested-`node_modules` install can't hit duplicate-React; only the
-native `@resvg/resvg-js` and `bun:sqlite` stay external). Rebuild it with
-`bun run build` whenever you change `src/` and commit the result.
+Two **committed** bundles under `dist/` (rebuild with `bun run build`, commit them):
+
+- `dist/cli.js` — the full CLI (Ink + React + commander inlined so a
+  nested-`node_modules` install can't hit duplicate-React; native
+  `@resvg/resvg-js` and `bun:sqlite` stay external).
+- `dist/hook-cli.js` — the **hot path** (bin `clocked-in-hook`). Agents spawn it
+  on every prompt, stop, and tool call, so it deliberately excludes
+  commander/Ink/resvg: ~9 KB, ~10 ms per call vs ~40 ms for the full bundle.
+  That's why per-tool timing doesn't meaningfully slow your turns (no Go needed).
 
 Installing hooks from a source checkout? Use `clocked-in install --all --local`
 so the hooks call your checkout (`bun …/cli.tsx`) instead of a global bin.

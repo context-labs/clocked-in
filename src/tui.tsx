@@ -46,14 +46,19 @@ function App() {
       </Text>
       <Box marginTop={1} flexDirection="column">
         <Text>
-          Total waited {"  "}
+          Human wait {"  "}
           <Text color={ORANGE} bold>
-            {fmtDuration(stats.totalMs)}
+            {fmtDuration(stats.humanWaitMs)}
           </Text>
-          <Text dimColor> across {stats.turns} turns</Text>
+          <Text dimColor> real time you sat waiting</Text>
         </Text>
         <Text>
-          Today {"        "}
+          Agent-time {"  "}
+          <Text bold>{fmtDuration(stats.totalMs)}</Text>
+          <Text dimColor> across {stats.turns} turns (sums concurrent)</Text>
+        </Text>
+        <Text>
+          Today {"       "}
           <Text bold>{fmtDuration(stats.todayMs)}</Text>
         </Text>
         {stats.longest && (
@@ -85,6 +90,19 @@ function App() {
               <Text dimColor>{`${m.model} · ${m.effort}`.padEnd(30)}</Text>
               <Text color={ORANGE}>{fmtDuration(m.ms).padStart(9)}</Text>
               <Text dimColor>{`  ${m.agent} (${m.turns})`}</Text>
+            </Text>
+          ))}
+        </Box>
+      )}
+
+      {stats.byAction.length > 0 && (
+        <Box marginTop={1} flexDirection="column">
+          <Text dimColor>by action</Text>
+          {stats.byAction.slice(0, 6).map((a) => (
+            <Text key={a.action}>
+              <Text dimColor>{a.action.padEnd(13)}</Text>
+              <Text color={ORANGE}>{fmtDuration(a.ms).padStart(9)}</Text>
+              <Text dimColor>{`  (${a.count} calls)`}</Text>
             </Text>
           ))}
         </Box>

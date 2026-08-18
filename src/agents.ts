@@ -2,11 +2,18 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, join } from "node:path";
 import { AGENTS, type Agent } from "./events.ts";
 
-// Our hook commands match this signature in both forms — global (`clocked-in
-// hook …`) and `--local` (`bun /path/cli.tsx hook …`). Uninstall uses it to find
-// and remove only our entries without touching the user's own hooks. Derived
-// from AGENTS so it can never drift out of sync with the supported set.
-const OUR_CMD = new RegExp(`\\bhook (?:start|stop) --agent (?:${AGENTS.join("|")})\\b`);
+// Our hook commands always end with `--agent <one-of-ours>` — distinctive enough
+// to identify on uninstall regardless of the bin prefix (clocked-in-hook, a
+// bun+path --local invocation, …). Derived from AGENTS so it can't drift.
+const OUR_CMD = new RegExp(`--agent (?:${AGENTS.join("|")})\\b`);
+
+// The four hook kinds ↔ their CLI arg.
+const KINDS = [
+  ["start", "start"],
+  ["stop", "stop"],
+  ["tool-start", "tool_start"],
+  ["tool-end", "tool_end"],
+] as const;
 
 export type AgentInstaller = {
   name: Agent;
@@ -22,8 +29,8 @@ export type AgentInstaller = {
   unverified?: boolean;
 };
 
-const cmd = (base: string, kind: "start" | "stop", agent: Agent) =>
-  `${base} hook ${kind} --agent ${agent}`;
+type CliKind = "start" | "stop" | "tool-start" | "tool-end";
+const cmd = (base: string, kind: CliKind, agent: Agent) => `${base} ${kind} --agent ${agent}`;
 
 function readJson(file: string): Record<string, any> {
   if (!existsSync(file)) return {};
@@ -43,14 +50,19 @@ type HookEntry = { hooks: { type: string; command: string }[] };
 const isOurs = (e: HookEntry) =>
   e.hooks?.some((h) => typeof h.command === "string" && OUR_CMD.test(h.command));
 
+// Claude Code / Codex / Grok event names ↔ our CLI kinds.
+const JSON_EVENTS: [string, CliKind][] = [
+  ["UserPromptSubmit", "start"],
+  ["Stop", "stop"],
+  ["PreToolUse", "tool-start"],
+  ["PostToolUse", "tool-end"],
+];
+
 // --- JSON-merge agents (Claude Code, Codex): a JSON file with a `.hooks` map ---
 function mergeJsonHooks(file: string, base: string, agent: Agent): void {
   const data = readJson(file);
   const hooks = (data.hooks ??= {});
-  for (const [event, kind] of [
-    ["UserPromptSubmit", "start"],
-    ["Stop", "stop"],
-  ] as const) {
+  for (const [event, kind] of JSON_EVENTS) {
     const arr: HookEntry[] = Array.isArray(hooks[event]) ? hooks[event] : [];
     const others = arr.filter((e) => !isOurs(e)); // drop our old entry -> idempotent
     others.push({ hooks: [{ type: "command", command: cmd(base, kind, agent) }] });
@@ -74,12 +86,11 @@ function unmergeJsonHooks(file: string): void {
 
 // --- own-file agents (Grok): a dedicated JSON file we fully own ---
 function grokConfig(base: string): unknown {
-  return {
-    hooks: {
-      UserPromptSubmit: [{ hooks: [{ type: "command", command: cmd(base, "start", "grok") }] }],
-      Stop: [{ hooks: [{ type: "command", command: cmd(base, "stop", "grok") }] }],
-    },
-  };
+  const hooks: Record<string, unknown> = {};
+  for (const [event, kind] of JSON_EVENTS) {
+    hooks[event] = [{ hooks: [{ type: "command", command: cmd(base, kind, "grok") }] }];
+  }
+  return { hooks };
 }
 
 // --- Cursor (desktop IDE + cursor-agent CLI): ~/.cursor/hooks.json ---
@@ -93,6 +104,8 @@ function mergeCursorHooks(file: string, base: string): void {
   for (const [event, kind] of [
     ["beforeSubmitPrompt", "start"],
     ["stop", "stop"],
+    ["preToolUse", "tool-start"],
+    ["postToolUse", "tool-end"],
   ] as const) {
     const arr: CursorEntry[] = Array.isArray(hooks[event]) ? hooks[event] : [];
     const others = arr.filter((e) => !(typeof e.command === "string" && OUR_CMD.test(e.command)));
@@ -118,18 +131,23 @@ function unmergeCursorHooks(file: string): void {
 
 // --- plugin-module agents (opencode, pi): a TS file that shells out ---
 function opencodePlugin(base: string): string {
-  return `// clocked-in — auto-generated. Records how long you wait for opencode.
-// Delete this file or run \`clocked-in uninstall\` to remove.
-export const ClockedIn = async ({ $ }) => ({
-  event: async ({ event }) => {
-    const hook = (kind, id) => $\`${base} hook \${kind} --agent opencode --session \${id || "unknown"}\`.quiet().nothrow();
-    if (event.type === "message.updated" && event.properties?.info?.role === "user") {
-      await hook("start", event.properties.info.sessionID);
-    } else if (event.type === "session.idle") {
-      await hook("stop", event.properties?.sessionID);
-    }
-  },
-});
+  return `// clocked-in — auto-generated. Records how long you wait for opencode,
+// including per-tool time. Delete this file or run \`clocked-in uninstall\` to remove.
+export const ClockedIn = async ({ $ }) => {
+  const run = (...a) => $\`${base} \${a}\`.quiet().nothrow();
+  return {
+    event: async ({ event }) => {
+      if (event.type === "message.updated" && event.properties?.info?.role === "user")
+        await run("start", "--agent", "opencode", "--session", event.properties.info.sessionID || "unknown");
+      else if (event.type === "session.idle")
+        await run("stop", "--agent", "opencode", "--session", event.properties?.sessionID || "unknown");
+    },
+    "tool.execute.before": async (input) =>
+      run("tool-start", "--agent", "opencode", "--session", input.sessionID || "unknown", "--tool", input.tool || "unknown", "--tool-id", input.callID || ""),
+    "tool.execute.after": async (input) =>
+      run("tool-end", "--agent", "opencode", "--session", input.sessionID || "unknown", "--tool", input.tool || "unknown", "--tool-id", input.callID || ""),
+  };
+};
 `;
 }
 
@@ -138,10 +156,13 @@ function piExtension(base: string): string {
 // NOTE: written from pi's docs, not runtime-verified — adjust event names if pi differs.
 // Delete this file or run \`clocked-in uninstall\` to remove.
 import { $ } from "bun";
+const run = (...a) => $\`${base} \${a}\`.quiet().nothrow();
 export default {
   events: {
-    "prompt.submit": ({ sessionId }) => $\`${base} hook start --agent pi --session \${sessionId || "unknown"}\`.quiet().nothrow(),
-    "turn.end":      ({ sessionId }) => $\`${base} hook stop --agent pi --session \${sessionId || "unknown"}\`.quiet().nothrow(),
+    "prompt.submit": ({ sessionId }) => run("start", "--agent", "pi", "--session", sessionId || "unknown"),
+    "turn.end":      ({ sessionId }) => run("stop", "--agent", "pi", "--session", sessionId || "unknown"),
+    "tool.before":   ({ sessionId, tool, callId }) => run("tool-start", "--agent", "pi", "--session", sessionId || "unknown", "--tool", tool || "unknown", "--tool-id", callId || ""),
+    "tool.after":    ({ sessionId, tool, callId }) => run("tool-end", "--agent", "pi", "--session", sessionId || "unknown", "--tool", tool || "unknown", "--tool-id", callId || ""),
   },
 };
 `;
@@ -192,7 +213,6 @@ export const INSTALLERS: AgentInstaller[] = [
     install: (base, h) =>
       writeOwnFile(join(h, ".config", "opencode", "plugin", "clocked-in.ts"), opencodePlugin(base)),
     uninstall: (h) => removeFile(join(h, ".config", "opencode", "plugin", "clocked-in.ts")),
-    unverified: true,
   },
   {
     name: "pi",

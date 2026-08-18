@@ -7,7 +7,8 @@
   "license": "MIT",
   "keywords": ["cli", "claude-code", "codex", "grok", "cursor", "opencode", "agents", "hooks", "tui"],
   "bin": {
-    "clocked-in": "dist/cli.js"
+    "clocked-in": "dist/cli.js",
+    "clocked-in-hook": "dist/hook-cli.js"
   },
   "files": ["dist", "assets", "src"],
   "scripts": {

@@ -5,7 +5,6 @@ import { KIND } from "./events.ts";
 import { runHook } from "./hook.ts";
 import { installAgents, uninstallAgents } from "./install.ts";
 import { report } from "./report.ts";
-import { share } from "./share.ts";
 import { AGENTS } from "./agents.ts";
 
 const program = new Command();
@@ -58,12 +57,18 @@ program
 
 program
   .command("hook <kind>")
-  .description("(internal) record a start/stop event; called by agent hooks")
+  .description("(internal) record an event; agents call the faster clocked-in-hook bin")
   .option("--agent <name>", "agent name")
   .option("--session <id>", "session id")
   .action(async (kind: string, opts) => {
-    if (kind !== KIND.start && kind !== KIND.stop) process.exit(0);
-    await runHook(kind, opts);
+    const k = {
+      start: KIND.start,
+      stop: KIND.stop,
+      "tool-start": KIND.tool_start,
+      "tool-end": KIND.tool_end,
+    }[kind];
+    if (!k) process.exit(0);
+    await runHook(k, opts);
     process.exit(0); // hooks must always exit clean
   });
 
@@ -72,8 +77,10 @@ program
   .description("Generate a share image + draft a tweet")
   .option("-o, --out <path>", "output PNG path")
   .option("--no-open", "don't open X or copy to clipboard")
-  .action((opts) => {
+  .action(async (opts) => {
     try {
+      // Lazy so the hook hot path never loads the native resvg addon.
+      const { share } = await import("./share.ts");
       const { png, text, url } = share(allEvents(), { out: opts.out, open: opts.open });
       console.log(`✓ image → ${png}\n\n${text}\n\nShare it: ${url}`);
       if (opts.open) console.log("(attempted to copy tweet to clipboard and open X)");

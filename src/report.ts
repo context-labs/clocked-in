@@ -7,13 +7,18 @@ export function report(events: Event[], opts: { days?: number; now?: number } = 
     return "clocked-in: no waiting recorded yet. Install hooks (clocked-in install --all) and run some agent turns.";
 
   const scope = opts.days ? `last ${opts.days}d` : "all time";
+  const overlap = s.totalMs - s.humanWaitMs;
   const lines = [
     `⏱  clocked-in — time you spent waiting on coding agents (${scope})`,
     "",
-    `  Total wait:   ${fmtDuration(s.totalMs)}  across ${s.turns} turns`,
+    `  Human wait:   ${fmtDuration(s.humanWaitMs)}  ← real time you sat waiting`,
+    `  Agent-time:   ${fmtDuration(s.totalMs)}  across ${s.turns} turns (sums concurrent agents)`,
+  ];
+  if (overlap > 1000) lines.push(`  Saved by //:  ${fmtDuration(overlap)}  ran concurrently`);
+  lines.push(
     `  Today:        ${fmtDuration(s.todayMs)}`,
     `  Avg / turn:   ${fmtDuration(s.totalMs / s.turns)}`,
-  ];
+  );
   if (s.longest) lines.push(`  Longest wait: ${fmtDuration(s.longest.ms)}  (${s.longest.agent})`);
   lines.push("", "  By agent:");
   for (const a of s.byAgent) {
@@ -30,6 +35,19 @@ export function report(events: Event[], opts: { days?: number; now?: number } = 
       lines.push(
         `      ${m.model.padEnd(22)} ${m.effort.padEnd(7)} ${fmtDuration(m.ms).padStart(10)}  (${m.turns} turns)`,
       );
+    }
+  }
+
+  if (s.byAction.length) {
+    lines.push("", "  By action:");
+    for (const a of s.byAction) {
+      lines.push(
+        `    ${a.action.padEnd(10)} ${fmtDuration(a.ms).padStart(10)}  (${a.count} calls)`,
+      );
+    }
+    lines.push("", "  By tool:");
+    for (const t of s.byTool) {
+      lines.push(`    ${t.tool.padEnd(20)} ${fmtDuration(t.ms).padStart(10)}  (${t.count} calls)`);
     }
   }
   return lines.join("\n");

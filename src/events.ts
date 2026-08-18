@@ -4,17 +4,24 @@
 export const AGENTS = ["claude-code", "codex", "grok", "cursor", "opencode", "pi"] as const;
 export type Agent = (typeof AGENTS)[number];
 
-export const KIND = { start: "start", stop: "stop" } as const;
+export const KIND = {
+  start: "start", // user submitted a prompt (wait begins)
+  stop: "stop", // agent finished the turn (wait ends)
+  tool_start: "tool_start", // a tool call began (PreToolUse)
+  tool_end: "tool_end", // a tool call finished (PostToolUse)
+} as const;
 export type Kind = (typeof KIND)[keyof typeof KIND];
 
 export type Event = {
   ts: number; // epoch ms
-  kind: Kind; // start = user submitted a prompt; stop = agent finished
+  kind: Kind;
   agent: string; // one of AGENTS (kept as string — hooks are untrusted input)
   session: string;
   cwd?: string;
   model?: string; // the model that ran the turn (known on `stop`)
   effort?: string; // reasoning effort, if the harness exposes it
+  tool?: string; // tool name (on tool_start/tool_end), e.g. "Bash"
+  toolId?: string; // tool_use_id, used to pair tool_start↔tool_end
 };
 
 export type Interval = {
@@ -25,6 +32,29 @@ export type Interval = {
   model?: string;
   effort?: string;
 };
+
+export type ToolInterval = {
+  agent: string;
+  session: string;
+  tool: string;
+  action: string;
+  start: number;
+  ms: number;
+};
+
+/** Coarse category for a tool name — the "action" axis (run/edit/read/…). */
+export function toolAction(tool: string | undefined): string {
+  const t = (tool ?? "").toLowerCase();
+  if (t.startsWith("mcp__") || t.startsWith("mcp_")) return "mcp";
+  if (/(bash|shell|terminal|exec|run_command|command)/.test(t)) return "run";
+  if (/(edit|write|create|apply_patch|str_replace|patch|multiedit|notebook)/.test(t)) return "edit";
+  if (/(grep|glob|search|find|codebase|ripgrep|ls|list)/.test(t)) return "search";
+  if (/(read|view|open|cat|file)/.test(t)) return "read";
+  if (/(task|agent|subagent|dispatch)/.test(t)) return "subagent";
+  if (/(web|fetch|browser|url)/.test(t)) return "web";
+  if (/(todo|plan|think)/.test(t)) return "plan";
+  return "other";
+}
 
 // Pair each `start` with the next `stop` in the same session. A new `start`
 // before a `stop` replaces the pending one (user re-prompted / interrupted).
@@ -37,7 +67,7 @@ export function pairIntervals(events: Event[]): Interval[] {
   for (const e of sorted) {
     if (e.kind === KIND.start) {
       pending.set(e.session, e);
-    } else {
+    } else if (e.kind === KIND.stop) {
       const s = pending.get(e.session);
       if (s) {
         // model/effort are known at `stop` (the turn has run), so take them from e.
@@ -54,6 +84,64 @@ export function pairIntervals(events: Event[]): Interval[] {
     }
   }
   return out;
+}
+
+// Pair each tool_start with its tool_end. tool_use_id is the reliable key when
+// present (Claude/Cursor); otherwise fall back to a per-(session,tool) LIFO stack.
+export function toolIntervals(events: Event[]): ToolInterval[] {
+  const sorted = [...events].sort((a, b) => a.ts - b.ts);
+  const byId = new Map<string, Event>();
+  const stacks = new Map<string, Event[]>();
+  const stackKey = (e: Event) => `${e.session}\0${e.tool ?? ""}`;
+  const out: ToolInterval[] = [];
+  const emit = (s: Event, e: Event) => {
+    const tool = s.tool ?? e.tool ?? "unknown";
+    out.push({
+      agent: s.agent,
+      session: s.session,
+      tool,
+      action: toolAction(tool),
+      start: s.ts,
+      ms: e.ts - s.ts,
+    });
+  };
+  for (const e of sorted) {
+    if (e.kind === KIND.tool_start) {
+      if (e.toolId) byId.set(e.toolId, e);
+      else (stacks.get(stackKey(e)) ?? stacks.set(stackKey(e), []).get(stackKey(e))!).push(e);
+    } else if (e.kind === KIND.tool_end) {
+      const s = e.toolId ? byId.get(e.toolId) : stacks.get(stackKey(e))?.pop();
+      if (s) {
+        emit(s, e);
+        if (e.toolId) byId.delete(e.toolId);
+      }
+    }
+  }
+  return out;
+}
+
+// Total length of the UNION of intervals — overlapping time counted once. This
+// is the "human wait": how long a person actually sat waiting even when several
+// agents ran concurrently (10 agents × 1h overlapping ≈ 1h here, not 10h).
+export function unionMs(intervals: { start: number; ms: number }[]): number {
+  const spans = intervals
+    .filter((i) => i.ms > 0)
+    .map((i) => [i.start, i.start + i.ms] as const)
+    .sort((a, b) => a[0] - b[0]);
+  let total = 0;
+  let curStart = -1;
+  let curEnd = -1;
+  for (const [s, e] of spans) {
+    if (s > curEnd) {
+      total += curEnd - curStart > 0 ? curEnd - curStart : 0;
+      curStart = s;
+      curEnd = e;
+    } else if (e > curEnd) {
+      curEnd = e;
+    }
+  }
+  if (curEnd > curStart) total += curEnd - curStart;
+  return total;
 }
 
 export function fmtDuration(ms: number): string {

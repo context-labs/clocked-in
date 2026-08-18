@@ -1,16 +1,19 @@
 // Bundle the CLI into a single file so distribution never hits duplicate-React
 // (Ink's reconciler + our components must share one React instance). Native
 // modules stay external — they can't be bundled and are real runtime deps.
-import { chmodSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const outfile = resolve(import.meta.dir, "../dist/cli.js");
-
+const dist = resolve(import.meta.dir, "../dist");
 const stub = resolve(import.meta.dir, "stub-empty.js");
 
 const result = await Bun.build({
-  entrypoints: [resolve(import.meta.dir, "../src/cli.tsx")],
-  outdir: resolve(import.meta.dir, "../dist"),
+  // Two bins: the full CLI, and a tiny hot-path recorder agents call per event.
+  entrypoints: [
+    resolve(import.meta.dir, "../src/cli.tsx"),
+    resolve(import.meta.dir, "../src/hook-cli.ts"),
+  ],
+  outdir: dist,
   target: "bun",
   // bun:sqlite is a builtin; resvg is a native addon — keep them external.
   external: ["@resvg/resvg-js"],
@@ -34,7 +37,10 @@ if (!result.success) {
 
 // Shebang must be line 1 (bun's `banner` lands after its own preamble), so prepend.
 const SHEBANG = "#!/usr/bin/env bun\n";
-const code = readFileSync(outfile, "utf8");
-if (!code.startsWith(SHEBANG)) writeFileSync(outfile, SHEBANG + code);
-chmodSync(outfile, 0o755);
-console.log(`✓ built ${outfile}`);
+for (const name of ["cli.js", "hook-cli.js"]) {
+  const outfile = resolve(dist, name);
+  const code = readFileSync(outfile, "utf8");
+  if (!code.startsWith(SHEBANG)) writeFileSync(outfile, SHEBANG + code);
+  chmodSync(outfile, 0o755);
+  console.log(`✓ built ${outfile} (${(statSync(outfile).size / 1024).toFixed(0)} KB)`);
+}

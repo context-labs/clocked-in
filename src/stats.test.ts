@@ -32,3 +32,30 @@ test("missing model/effort bucket as unknown / —", () => {
   const s = computeStats(turn("grok", "x", 0, 5000));
   expect(s.byModel[0]).toMatchObject({ agent: "grok", model: "unknown", effort: "—" });
 });
+
+test("humanWaitMs dedupes concurrent agents; totalMs sums them", () => {
+  // two agents both wait 0..1h → agent-time 2h, human wait 1h
+  const events = [...turn("claude-code", "a", 0, 3_600_000), ...turn("codex", "b", 0, 3_600_000)];
+  const s = computeStats(events);
+  expect(s.totalMs).toBe(7_200_000);
+  expect(s.humanWaitMs).toBe(3_600_000);
+});
+
+test("byTool and byAction aggregate tool intervals", () => {
+  const events: Event[] = [
+    { ts: 0, kind: "tool_start", agent: "claude-code", session: "s", tool: "Bash", toolId: "1" },
+    { ts: 3000, kind: "tool_end", agent: "claude-code", session: "s", tool: "Bash", toolId: "1" },
+    { ts: 4000, kind: "tool_start", agent: "claude-code", session: "s", tool: "Bash", toolId: "2" },
+    { ts: 5000, kind: "tool_end", agent: "claude-code", session: "s", tool: "Bash", toolId: "2" },
+    { ts: 6000, kind: "tool_start", agent: "claude-code", session: "s", tool: "Read", toolId: "3" },
+    { ts: 6500, kind: "tool_end", agent: "claude-code", session: "s", tool: "Read", toolId: "3" },
+  ];
+  const s = computeStats(events);
+  expect(s.byTool[0]).toEqual({ tool: "Bash", action: "run", ms: 4000, count: 2 });
+  expect(s.byAction.find((a) => a.action === "run")).toEqual({ action: "run", ms: 4000, count: 2 });
+  expect(s.byAction.find((a) => a.action === "read")).toEqual({
+    action: "read",
+    ms: 500,
+    count: 1,
+  });
+});

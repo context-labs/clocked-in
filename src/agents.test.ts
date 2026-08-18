@@ -26,7 +26,10 @@ test("claude-code: merges hooks, preserves existing config, idempotent, clean un
   expect(cfg.model).toBe("opus"); // untouched
   expect(cfg.hooks.UserPromptSubmit).toHaveLength(2); // user's + ours
   expect(cfg.hooks.Stop).toHaveLength(1);
-  expect(JSON.stringify(cfg)).toContain("clocked-in hook start --agent claude-code");
+  expect(cfg.hooks.PreToolUse).toHaveLength(1); // tool timing
+  expect(cfg.hooks.PostToolUse).toHaveLength(1);
+  expect(JSON.stringify(cfg)).toContain("clocked-in-hook start --agent claude-code");
+  expect(JSON.stringify(cfg)).toContain("clocked-in-hook tool-start --agent claude-code");
 
   installAgents(["claude-code"], { home }); // idempotent
   cfg = readJson(settings);
@@ -87,9 +90,12 @@ test("--all only touches detected agents", () => {
 test("uninstall removes --local (bun path) hooks too — regression", () => {
   mkdirSync(join(home, ".claude"), { recursive: true });
   installAgents(["claude-code"], { home, local: true });
+  const afterInstall = readJson(join(home, ".claude", "settings.json"));
+  expect(JSON.stringify(afterInstall)).toContain("hook-cli.ts"); // local path form
   uninstallAgents(["claude-code"], { home });
   const cfg = readJson(join(home, ".claude", "settings.json"));
-  expect(JSON.stringify(cfg)).not.toContain("cli.tsx hook");
+  expect(JSON.stringify(cfg)).not.toContain("hook-cli");
+  expect(JSON.stringify(cfg)).not.toContain("--agent");
 });
 
 test("--local embeds absolute bun + script paths instead of the global bin", () => {
@@ -97,5 +103,5 @@ test("--local embeds absolute bun + script paths instead of the global bin", () 
   installAgents(["grok"], { home, local: true });
   const cmd = readJson(join(home, ".grok", "hooks", "clocked-in.json")).hooks.UserPromptSubmit[0]
     .hooks[0].command;
-  expect(cmd).toMatch(/^\/.*bun .*cli\.tsx hook start/); // absolute bun path, absolute script
+  expect(cmd).toMatch(/^\/.*bun .*hook-cli\.ts start --agent grok/); // absolute bun + fast hook bin
 });

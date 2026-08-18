@@ -2,11 +2,16 @@ import { readFileSync } from "node:fs";
 import { insertEvent } from "./db.ts";
 import { KIND, type Event, type Kind } from "./events.ts";
 
-// Read stdin JSON if the agent piped any. Never throws, never hangs on a TTY.
+// Read stdin JSON if the agent piped any. Never throws, and never blocks the
+// agent: harnesses pipe JSON and close stdin (immediate EOF), but if stdin is an
+// open pipe that never closes we bail after a short timeout rather than hang.
 async function readStdin(): Promise<Record<string, unknown>> {
   if (process.stdin.isTTY) return {};
   try {
-    const text = await Bun.stdin.text();
+    const text = await Promise.race([
+      Bun.stdin.text(),
+      new Promise<string>((r) => setTimeout(() => r(""), 300)),
+    ]);
     return text.trim() ? JSON.parse(text) : {};
   } catch {
     return {};
@@ -25,9 +30,11 @@ export type Meta = { model?: string; effort?: string };
  * (`sessionId`) plus env vars. `meta` carries transcript-derived model/effort.
  * Precedence for model/effort: explicit stdin field > meta (transcript).
  */
+export type HookOpts = { agent?: string; session?: string; tool?: string; toolId?: string };
+
 export function resolveEvent(
   kind: Kind,
-  opts: { agent?: string; session?: string },
+  opts: HookOpts,
   input: Record<string, unknown>,
   env: Record<string, string | undefined>,
   now: number,
@@ -55,6 +62,14 @@ export function resolveEvent(
       meta.model,
     effort:
       str(input.reasoning_effort) || str(input.effort) || str(input.reasoningEffort) || meta.effort,
+    tool: opts.tool || str(input.tool_name) || str(input.toolName) || str(input.tool),
+    toolId:
+      opts.toolId ||
+      str(input.tool_use_id) ||
+      str(input.toolUseId) ||
+      str(input.tool_call_id) ||
+      str(input.toolCallId) ||
+      str(input.callId),
   };
 }
 
@@ -94,10 +109,7 @@ function readTranscript(path: string | undefined): Meta {
 }
 
 // A hook must never disrupt the agent, so this always resolves and swallows errors.
-export async function runHook(
-  kind: Kind,
-  opts: { agent?: string; session?: string },
-): Promise<void> {
+export async function runHook(kind: Kind, opts: HookOpts): Promise<void> {
   try {
     const input = await readStdin();
     // Only the stop hook can know the model/effort — the turn has finished by then.
