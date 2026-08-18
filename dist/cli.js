@@ -25153,24 +25153,31 @@ function Heat({ stats, now: now2 }) {
 }
 function App2({ since }) {
   const { exit } = use_app_default();
-  const opts = since === undefined ? {} : { since };
-  const [stats, setStats] = import_react34.useState(() => computeStats(allEvents(), opts));
+  const session = since !== undefined;
+  const [events, setEvents] = import_react34.useState(() => allEvents());
+  const [winIdx, setWinIdx] = import_react34.useState(WINDOWS.length - 1);
   const [note, setNote] = import_react34.useState("");
   const [confirmReset, setConfirmReset] = import_react34.useState(false);
   import_react34.useEffect(() => {
-    const t = setInterval(() => setStats(computeStats(allEvents(), opts)), 1000);
+    const t = setInterval(() => setEvents(allEvents()), 1000);
     return () => clearInterval(t);
   }, []);
-  use_input_default((input) => {
+  const win = WINDOWS[winIdx];
+  const stats = import_react34.useMemo(() => computeStats(events, session ? { since } : { days: win.days || undefined }), [events, winIdx, since, session]);
+  use_input_default((input, key) => {
     if (confirmReset) {
       if (input === "y") {
         resetEvents();
-        setStats(computeStats(allEvents()));
+        setEvents(allEvents());
         setNote("reset \u2014 all recorded data erased.");
       } else {
         setNote("reset cancelled.");
       }
       setConfirmReset(false);
+      return;
+    }
+    if (!session && (key.leftArrow || key.rightArrow)) {
+      setWinIdx((i) => Math.min(WINDOWS.length - 1, Math.max(0, i + (key.rightArrow ? 1 : -1))));
       return;
     }
     if (input === "q")
@@ -25180,7 +25187,7 @@ function App2({ since }) {
       setNote("");
     } else if (input === "s") {
       setNote("rendering share card\u2026");
-      share(allEvents(), { open: true }).then(({ png }) => setNote(`saved \u2192 ${png}`)).catch((e) => setNote(String(e.message)));
+      share(events, { open: true }).then(({ png }) => setNote(`saved \u2192 ${png}`)).catch((e) => setNote(String(e.message)));
     }
   });
   const max2 = Math.max(1, ...stats.byAgent.map((a) => a.ms));
@@ -25196,12 +25203,15 @@ function App2({ since }) {
             bold: true,
             children: "\u23F1 clocked-in"
           }, undefined, false, undefined, this),
-          since !== undefined ? /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
+          session ? /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
             dimColor: true,
             children: `   this session \xB7 started ${clock(since)}`
-          }, undefined, false, undefined, this) : stats.sinceMs && /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
+          }, undefined, false, undefined, this) : win.days === 0 ? /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
             dimColor: true,
-            children: `   since ${fmtDate(stats.sinceMs)}`
+            children: `   all time${stats.sinceMs ? ` \xB7 since ${fmtDate(stats.sinceMs)}` : ""}`
+          }, undefined, false, undefined, this) : /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
+            dimColor: true,
+            children: `   last ${win.label}`
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
@@ -25264,7 +25274,7 @@ function App2({ since }) {
           }, undefined, true, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      since === undefined && /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Heat, {
+      !session && win.days === 0 && /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Heat, {
         stats,
         now: Date.now()
       }, undefined, false, undefined, this),
@@ -25349,6 +25359,21 @@ function App2({ since }) {
           }, a.action, true, undefined, this))
         ]
       }, undefined, true, undefined, this),
+      !session && !confirmReset && /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Box_default, {
+        marginTop: 1,
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
+            dimColor: true,
+            children: "\u2190 \u2192 "
+          }, undefined, false, undefined, this),
+          WINDOWS.map((w, i) => /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
+            color: i === winIdx ? ORANGE : undefined,
+            dimColor: i !== winIdx,
+            bold: i === winIdx,
+            children: i === winIdx ? `[${w.label}]` : ` ${w.label} `
+          }, w.label, false, undefined, this))
+        ]
+      }, undefined, true, undefined, this),
       /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Box_default, {
         marginTop: 1,
         children: confirmReset ? /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
@@ -25373,7 +25398,7 @@ function runTui(opts = {}) {
 var import_react34, jsx_dev_runtime, ORANGE = "#f97316", WEEK, HEAT, DOW, level = (ms, max2) => ms <= 0 || max2 <= 0 ? 0 : Math.min(4, Math.ceil(ms / max2 * 4)), clock = (ms) => {
   const d = new Date(ms);
   return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
-};
+}, WINDOWS;
 var init_tui = __esm(async () => {
   init_db();
   init_events();
@@ -25385,6 +25410,12 @@ var init_tui = __esm(async () => {
   WEEK = 7 * 86400000;
   HEAT = ["#20242c", "#7c3d10", "#b5560f", "#e0670f", ORANGE];
   DOW = ["", "Mon", "", "Wed", "", "Fri", ""];
+  WINDOWS = [
+    { label: "24h", days: 1 },
+    { label: "7d", days: 7 },
+    { label: "30d", days: 30 },
+    { label: "all time", days: 0 }
+  ];
 });
 
 // src/history.ts

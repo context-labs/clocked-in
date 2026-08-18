@@ -1,7 +1,7 @@
 import { Box, render, Text, useApp, useInput } from "ink";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { allEvents, resetEvents } from "./db.ts";
-import { fmtDate, fmtDuration, heatmap } from "./events.ts";
+import { fmtDate, fmtDuration, heatmap, type Event } from "./events.ts";
 import { share } from "./share.ts";
 import { computeStats, type Stats } from "./stats.ts";
 
@@ -55,29 +55,48 @@ const clock = (ms: number) => {
   return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
 
+const WINDOWS = [
+  { label: "24h", days: 1 },
+  { label: "7d", days: 7 },
+  { label: "30d", days: 30 },
+  { label: "all time", days: 0 },
+] as const;
+
 function App({ since }: { since?: number }) {
   const { exit } = useApp();
-  const opts = since === undefined ? {} : { since };
-  const [stats, setStats] = useState<Stats>(() => computeStats(allEvents(), opts));
+  const session = since !== undefined;
+  const [events, setEvents] = useState<Event[]>(() => allEvents());
+  const [winIdx, setWinIdx] = useState(WINDOWS.length - 1); // default: all time
   const [note, setNote] = useState("");
   const [confirmReset, setConfirmReset] = useState(false);
 
   useEffect(() => {
-    const t = setInterval(() => setStats(computeStats(allEvents(), opts)), 1000);
+    const t = setInterval(() => setEvents(allEvents()), 1000);
     return () => clearInterval(t);
   }, []);
 
-  useInput((input) => {
+  const win = WINDOWS[winIdx]!;
+  const stats = useMemo(
+    () => computeStats(events, session ? { since } : { days: win.days || undefined }),
+    [events, winIdx, since, session],
+  );
+
+  useInput((input, key) => {
     // Reset erases all recorded data — require an explicit second confirmation.
     if (confirmReset) {
       if (input === "y") {
         resetEvents();
-        setStats(computeStats(allEvents()));
+        setEvents(allEvents());
         setNote("reset — all recorded data erased.");
       } else {
         setNote("reset cancelled.");
       }
       setConfirmReset(false);
+      return;
+    }
+    // Arrow keys switch the time window (not in a fixed-range session view).
+    if (!session && (key.leftArrow || key.rightArrow)) {
+      setWinIdx((i) => Math.min(WINDOWS.length - 1, Math.max(0, i + (key.rightArrow ? 1 : -1))));
       return;
     }
     if (input === "q") exit();
@@ -86,7 +105,7 @@ function App({ since }: { since?: number }) {
       setNote("");
     } else if (input === "s") {
       setNote("rendering share card…");
-      share(allEvents(), { open: true })
+      share(events, { open: true })
         .then(({ png }) => setNote(`saved → ${png}`))
         .catch((e) => setNote(String((e as Error).message)));
     }
@@ -99,10 +118,14 @@ function App({ since }: { since?: number }) {
         <Text color={ORANGE} bold>
           ⏱ clocked-in
         </Text>
-        {since !== undefined ? (
-          <Text dimColor>{`   this session · started ${clock(since)}`}</Text>
+        {session ? (
+          <Text dimColor>{`   this session · started ${clock(since!)}`}</Text>
+        ) : win.days === 0 ? (
+          <Text
+            dimColor
+          >{`   all time${stats.sinceMs ? ` · since ${fmtDate(stats.sinceMs)}` : ""}`}</Text>
         ) : (
-          stats.sinceMs && <Text dimColor>{`   since ${fmtDate(stats.sinceMs)}`}</Text>
+          <Text dimColor>{`   last ${win.label}`}</Text>
         )}
       </Text>
       <Box marginTop={1} flexDirection="column">
@@ -129,7 +152,7 @@ function App({ since }: { since?: number }) {
         )}
       </Box>
 
-      {since === undefined && <Heat stats={stats} now={Date.now()} />}
+      {!session && win.days === 0 && <Heat stats={stats} now={Date.now()} />}
 
       <Box marginTop={1} flexDirection="column">
         {stats.byAgent.length === 0 ? (
@@ -166,6 +189,22 @@ function App({ since }: { since?: number }) {
               <Text dimColor>{a.action.padEnd(13)}</Text>
               <Text color={ORANGE}>{fmtDuration(a.ms).padStart(9)}</Text>
               <Text dimColor>{`  (${a.count} calls)`}</Text>
+            </Text>
+          ))}
+        </Box>
+      )}
+
+      {!session && !confirmReset && (
+        <Box marginTop={1}>
+          <Text dimColor>{"← → "}</Text>
+          {WINDOWS.map((w, i) => (
+            <Text
+              key={w.label}
+              color={i === winIdx ? ORANGE : undefined}
+              dimColor={i !== winIdx}
+              bold={i === winIdx}
+            >
+              {i === winIdx ? `[${w.label}]` : ` ${w.label} `}
             </Text>
           ))}
         </Box>
