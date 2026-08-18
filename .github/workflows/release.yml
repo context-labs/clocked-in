@@ -1,0 +1,41 @@
+name: release
+
+# Cut a release by pushing a tag:  git tag v0.1.1 && git push origin v0.1.1
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the GitHub Release and upload assets
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - name: Gate
+        run: bunx tsgo --noEmit && bunx oxlint && bun test
+
+      - name: Cross-compile binaries + checksums
+        env:
+          CLOCKED_IN_VERSION: ${{ github.ref_name }}
+          CLOCKED_IN_COMMIT: ${{ github.sha }}
+        run: bun run build:release
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            dist/release/clocked-in-* \
+            dist/release/SHA256SUMS \
+            install.sh \
+            --title "${{ github.ref_name }}" \
+            --generate-notes

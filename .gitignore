@@ -4,6 +4,8 @@ node_modules
 # output
 out
 *.tgz
+# cross-compiled release binaries (published to GitHub Releases, not committed)
+dist/release/
 # dist/ is the committed, bundled CLI artifact (bin) — it must be tracked so
 # `bun install -g github:...` works without a build step. Do not ignore it.
 

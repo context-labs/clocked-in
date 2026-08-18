@@ -2,7 +2,22 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installAgents, uninstallAgents } from "./install.ts";
+import { isOurCommand } from "./agents.ts";
+import { installAgents, shellQuote, uninstallAgents } from "./install.ts";
+
+test("shellQuote wraps and escapes for the shell", () => {
+  expect(shellQuote("/usr/local/bin/clocked-in")).toBe("'/usr/local/bin/clocked-in'");
+  expect(shellQuote("/My Tools/clocked-in")).toBe("'/My Tools/clocked-in'");
+  expect(shellQuote("a'b")).toBe("'a'\\''b'");
+});
+
+test("isOurCommand recognizes a shell-quoted compiled hook command (spaces in path)", () => {
+  // what resolveBase emits for a compiled binary at a spaced path
+  const cmd = "'/Users/me/My Tools/bin/clocked-in' hook start --agent claude-code";
+  expect(isOurCommand(cmd)).toBe(true);
+  expect(isOurCommand("clocked-in-hook stop --agent grok")).toBe(true);
+  expect(isOurCommand("my-audit --agent grok")).toBe(false); // not ours
+});
 
 let home: string;
 beforeEach(() => (home = mkdtempSync(join(tmpdir(), "clocked-home-"))));
@@ -162,5 +177,6 @@ test("--local embeds absolute bun + script paths instead of the global bin", () 
   installAgents(["grok"], { home, local: true });
   const cmd = readJson(join(home, ".grok", "hooks", "clocked-in.json")).hooks.UserPromptSubmit[0]
     .hooks[0].command;
-  expect(cmd).toMatch(/^\/.*bun .*hook-cli\.ts start --agent grok/); // absolute bun + fast hook bin
+  expect(cmd).toMatch(/^'\/.*bun' '.*hook-cli\.ts' start --agent grok/); // quoted abs bun + fast hook bin
+  expect(isOurCommand(cmd)).toBe(true); // uninstall can still find it
 });

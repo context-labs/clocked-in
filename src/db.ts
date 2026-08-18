@@ -55,46 +55,47 @@ export function db(path = dbPath()): Database {
   return d;
 }
 
+const INSERT_SQL =
+  "INSERT INTO events (ts, kind, agent, session, cwd, model, effort, source, tool, tool_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+type Binding = [
+  number,
+  string,
+  string,
+  string,
+  string | null,
+  string | null,
+  string | null,
+  string,
+  string | null,
+  string | null,
+];
+const bind = (e: Event): Binding => [
+  e.ts,
+  e.kind,
+  e.agent,
+  e.session,
+  e.cwd ?? null,
+  e.model ?? null,
+  e.effort ?? null,
+  e.source ?? "hook",
+  e.tool ?? null,
+  e.toolId ?? null,
+];
+
+// Hot path (one event per hook): a plain insert, no transaction overhead.
 export function insertEvent(e: Event, path = dbPath()): void {
   db(path)
-    .query(
-      "INSERT INTO events (ts, kind, agent, session, cwd, model, effort, source, tool, tool_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .run(
-      e.ts,
-      e.kind,
-      e.agent,
-      e.session,
-      e.cwd ?? null,
-      e.model ?? null,
-      e.effort ?? null,
-      e.source ?? "hook",
-      e.tool ?? null,
-      e.toolId ?? null,
-    );
+    .query(INSERT_SQL)
+    .run(...bind(e));
 }
 
+// Batched (history import): one transaction for many rows.
 export function insertEvents(events: Event[], path = dbPath()): void {
   if (!events.length) return;
   const d = db(path);
-  const statement = d.query(
-    "INSERT INTO events (ts, kind, agent, session, cwd, model, effort, source, tool, tool_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  );
+  const statement = d.query(INSERT_SQL);
   d.transaction(() => {
-    for (const e of events) {
-      statement.run(
-        e.ts,
-        e.kind,
-        e.agent,
-        e.session,
-        e.cwd ?? null,
-        e.model ?? null,
-        e.effort ?? null,
-        e.source ?? "hook",
-        e.tool ?? null,
-        e.toolId ?? null,
-      );
-    }
+    for (const e of events) statement.run(...bind(e));
   })();
 }
 

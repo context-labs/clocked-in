@@ -8,9 +8,11 @@ import { AGENTS, type Agent } from "./events.ts";
 // our agents. Entrypoints cover every form we've ever written: the current fast
 // bin (`clocked-in-hook`, `hook-cli.ts/js`) and legacy ones (`clocked-in hook`,
 // `cli.tsx/js hook`). Derived from AGENTS so the agent list can't drift.
-const OUR_ENTRY = /clocked-in-hook|hook-cli\.[tj]s|clocked-in hook|cli\.[tj]sx? hook/;
+// `clocked-in['"]? hook` also matches a shell-quoted compiled path
+// (`'/path/clocked-in' hook`), whose closing quote sits before ` hook`.
+const OUR_ENTRY = /clocked-in-hook|hook-cli\.[tj]s|clocked-in['"]? hook|cli\.[tj]sx? hook/;
 const OUR_AGENT = new RegExp(`--agent (?:${AGENTS.join("|")})\\b`);
-const isOurCommand = (c: string) => OUR_ENTRY.test(c) && OUR_AGENT.test(c);
+export const isOurCommand = (c: string) => OUR_ENTRY.test(c) && OUR_AGENT.test(c);
 
 export type AgentInstaller = {
   name: Agent;

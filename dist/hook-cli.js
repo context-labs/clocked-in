@@ -170,6 +170,16 @@ var init_events = __esm(() => {
 });
 
 // src/db.ts
+var exports_db = {};
+__export(exports_db, {
+  resetEvents: () => resetEvents,
+  insertEvents: () => insertEvents,
+  insertEvent: () => insertEvent,
+  historyResetAt: () => historyResetAt,
+  dbPath: () => dbPath,
+  db: () => db,
+  allEvents: () => allEvents
+});
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "fs";
 import { homedir } from "os";
@@ -218,17 +228,16 @@ function db(path = dbPath()) {
   return d;
 }
 function insertEvent(e, path = dbPath()) {
-  db(path).query("INSERT INTO events (ts, kind, agent, session, cwd, model, effort, source, tool, tool_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(e.ts, e.kind, e.agent, e.session, e.cwd ?? null, e.model ?? null, e.effort ?? null, e.source ?? "hook", e.tool ?? null, e.toolId ?? null);
+  db(path).query(INSERT_SQL).run(...bind(e));
 }
 function insertEvents(events, path = dbPath()) {
   if (!events.length)
     return;
   const d = db(path);
-  const statement = d.query("INSERT INTO events (ts, kind, agent, session, cwd, model, effort, source, tool, tool_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+  const statement = d.query(INSERT_SQL);
   d.transaction(() => {
-    for (const e of events) {
-      statement.run(e.ts, e.kind, e.agent, e.session, e.cwd ?? null, e.model ?? null, e.effort ?? null, e.source ?? "hook", e.tool ?? null, e.toolId ?? null);
-    }
+    for (const e of events)
+      statement.run(...bind(e));
   })();
 }
 function allEvents(path = dbPath()) {
@@ -259,7 +268,18 @@ function resetEvents(path = dbPath(), resetAt = Date.now()) {
     saveReset.run(HISTORY_RESET_KEY, String(resetAt));
   })();
 }
-var cache, HISTORY_RESET_KEY = "history_reset_at";
+var cache, HISTORY_RESET_KEY = "history_reset_at", INSERT_SQL = "INSERT INTO events (ts, kind, agent, session, cwd, model, effort, source, tool, tool_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", bind = (e) => [
+  e.ts,
+  e.kind,
+  e.agent,
+  e.session,
+  e.cwd ?? null,
+  e.model ?? null,
+  e.effort ?? null,
+  e.source ?? "hook",
+  e.tool ?? null,
+  e.toolId ?? null
+];
 var init_db = __esm(() => {
   cache = new Map;
 });
