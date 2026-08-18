@@ -10,7 +10,7 @@ import { computeStats, type Stats } from "./stats.ts";
 export function tweetText(stats: Stats): string {
   const worst = stats.byAgent[0];
   const worstLine = worst ? ` ${worst.agent} was the worst at ${fmtDuration(worst.ms)}.` : "";
-  return `Holy shit — I've spent ${headline(stats.totalMs)} of my life waiting for coding agents to finish. 🫠\n\nAcross ${stats.turns} turns.${worstLine}\n\nMeasure your own wait: npm i -g clocked-in`;
+  return `Holy shit — I've spent ${headline(stats.totalMs)} of my life waiting for coding agents to finish. 🫠\n\nAcross ${stats.turns} turns.${worstLine}\n\nMeasure your own wait: github.com/context-labs/clocked-in`;
 }
 
 // Bundled so the card renders identically on any machine (no system fonts needed).

@@ -26,8 +26,21 @@ Measure it.
 
 ## Install
 
+Not on npm yet — install straight from GitHub with Bun ([Bun](https://bun.sh) required):
+
 ```sh
-bun install -g clocked-in     # or: bunx clocked-in
+bun install -g github:context-labs/clocked-in
+# pin a branch/tag/commit:  github:context-labs/clocked-in#main
+# https instead of ssh:      git+https://github.com/context-labs/clocked-in.git
+```
+
+That puts a global `clocked-in` on your PATH (Bun installs the deps and links the
+bin — no build step). If `clocked-in` isn't found afterward, add Bun's global bin
+dir to your PATH: `export PATH="$(bun pm bin -g):$PATH"`.
+
+Then wire the hooks in:
+
+```sh
 clocked-in install --all      # wire hooks into every agent found on your machine
 ```
 
@@ -82,10 +95,16 @@ answering permission prompts. Documented ceiling; refine later.
 ## Develop
 
 ```sh
-task check   # tsgo typecheck + oxlint + oxfmt --check + bun test
-task dev -- report
+git clone git@github.com:context-labs/clocked-in.git && cd clocked-in
+bun install
+bun link            # optional: puts a global `clocked-in` pointing at your checkout
+task check          # tsgo typecheck + oxlint + oxfmt --check + bun test
+task dev -- report  # run from source without linking
 task fmt
 ```
+
+Installing hooks from a source checkout? Use `clocked-in install --all --local`
+so the hooks call your checkout (`bun …/cli.tsx`) instead of a global bin.
 
 Stack: Bun · `bun:sqlite` · commander · Ink · `@resvg/resvg-js` · oxlint/oxfmt ·
 tsgo (TypeScript 7 preview).

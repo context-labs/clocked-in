@@ -66,10 +66,10 @@ test("uninstall removes --local (bun path) hooks too — regression", () => {
   expect(JSON.stringify(cfg)).not.toContain("cli.tsx hook");
 });
 
-test("--local embeds a bun path instead of the global bin", () => {
+test("--local embeds absolute bun + script paths instead of the global bin", () => {
   mkdirSync(join(home, ".grok"), { recursive: true });
   installAgents(["grok"], { home, local: true });
   const cmd = readJson(join(home, ".grok", "hooks", "clocked-in.json")).hooks.UserPromptSubmit[0]
     .hooks[0].command;
-  expect(cmd).toMatch(/^bun .*cli\.tsx hook start/);
+  expect(cmd).toMatch(/^\/.*bun .*cli\.tsx hook start/); // absolute bun path, absolute script
 });

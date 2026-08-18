@@ -5,9 +5,10 @@ import { INSTALLERS, installerFor, type AgentInstaller } from "./agents.ts";
 export type InstallResult = { name: string; path: string; unverified?: boolean };
 
 // The command an agent's hook invokes. Globally installed -> the `clocked-in`
-// bin on PATH. `--local` embeds this checkout for development.
+// bin on PATH. `--local` embeds absolute paths to this checkout — both the bun
+// binary and the script — so the hook works under /bin/sh regardless of PATH.
 export function resolveBase(local: boolean): string {
-  return local ? `bun ${resolve(import.meta.dir, "cli.tsx")}` : "clocked-in";
+  return local ? `${process.execPath} ${resolve(import.meta.dir, "cli.tsx")}` : "clocked-in";
 }
 
 // Which agents to act on: explicit names, or (--all) every detected one.

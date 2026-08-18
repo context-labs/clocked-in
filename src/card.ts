@@ -43,6 +43,6 @@ export function renderCardSvg(stats: Stats): string {
   <text x="78" y="330" fill="#f97316" font-size="120" font-weight="700" font-family="${FONT}">${esc(big)}</text>
   <text x="80" y="378" fill="#e7ebf3" font-size="40" font-family="${FONT}">for my coding agents to finish.</text>
   ${rows}
-  <text x="80" y="645" fill="#5b6377" font-size="24" font-family="${FONT}">${stats.turns} turns · measure yours: npm i -g clocked-in</text>
+  <text x="80" y="645" fill="#5b6377" font-size="24" font-family="${FONT}">${stats.turns} turns · measure yours: github.com/context-labs/clocked-in</text>
 </svg>`;
 }
