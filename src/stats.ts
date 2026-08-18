@@ -1,14 +1,19 @@
-import { pairIntervals, type Event, type Interval } from "./events.ts";
+import { pairIntervals, toolIntervals, unionMs, type Event, type Interval } from "./events.ts";
 
 export type ModelRow = { agent: string; model: string; effort: string; ms: number; turns: number };
+export type ToolRow = { tool: string; action: string; ms: number; count: number };
+export type ActionRow = { action: string; ms: number; count: number };
 
 export type Stats = {
-  totalMs: number;
+  totalMs: number; // cumulative: sum of every turn's wait (double-counts concurrent agents)
+  humanWaitMs: number; // overlap-adjusted: how long a person actually sat waiting
   todayMs: number;
   turns: number;
   longest: Interval | null;
   byAgent: { agent: string; ms: number; turns: number }[]; // sorted desc by ms
   byModel: ModelRow[]; // per harness → model → effort, sorted desc by ms
+  byTool: ToolRow[]; // per tool, sorted desc by ms
+  byAction: ActionRow[]; // per tool category (run/edit/read/…), sorted desc by ms
 };
 
 const DAY_MS = 86_400_000;
@@ -42,12 +47,29 @@ export function computeStats(events: Event[], opts: { days?: number; now?: numbe
     models.set(key, m);
   }
 
+  // Tool time (a subset of wait time, measured PreToolUse→PostToolUse).
+  const tools = new Map<string, ToolRow>();
+  const actions = new Map<string, ActionRow>();
+  for (const ti of toolIntervals(events).filter((t) => t.start >= cutoff)) {
+    const t = tools.get(ti.tool) ?? { tool: ti.tool, action: ti.action, ms: 0, count: 0 };
+    t.ms += ti.ms;
+    t.count += 1;
+    tools.set(ti.tool, t);
+    const a = actions.get(ti.action) ?? { action: ti.action, ms: 0, count: 0 };
+    a.ms += ti.ms;
+    a.count += 1;
+    actions.set(ti.action, a);
+  }
+
   return {
     totalMs,
+    humanWaitMs: unionMs(intervals),
     todayMs,
     turns: intervals.length,
     longest,
     byAgent: [...agents].map(([agent, g]) => ({ agent, ...g })).sort((a, b) => b.ms - a.ms),
     byModel: [...models.values()].sort((a, b) => b.ms - a.ms),
+    byTool: [...tools.values()].sort((a, b) => b.ms - a.ms),
+    byAction: [...actions.values()].sort((a, b) => b.ms - a.ms),
   };
 }

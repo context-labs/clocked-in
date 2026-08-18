@@ -1,14 +1,20 @@
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { INSTALLERS, installerFor, type AgentInstaller } from "./agents.ts";
 
 export type InstallResult = { name: string; path: string; unverified?: boolean };
 
-// The command an agent's hook invokes. Globally installed -> the `clocked-in`
-// bin on PATH. `--local` embeds absolute paths to this checkout — both the bun
-// binary and the script — so the hook works under /bin/sh regardless of PATH.
+// The command an agent's hook invokes — the fast hook bin (no commander/Ink/
+// resvg, ~5-10ms). Globally installed -> `clocked-in-hook` on PATH.
+// `--local` embeds absolute paths to this checkout (bun + the hook script) so it
+// works under /bin/sh regardless of PATH. The hook script is the sibling of the
+// running entry: hook-cli.ts when run from src/, hook-cli.js when run from dist/.
 export function resolveBase(local: boolean): string {
-  return local ? `${process.execPath} ${resolve(import.meta.dir, "cli.tsx")}` : "clocked-in";
+  if (!local) return "clocked-in-hook";
+  const ts = resolve(import.meta.dir, "hook-cli.ts");
+  const script = existsSync(ts) ? ts : resolve(import.meta.dir, "hook-cli.js");
+  return `${process.execPath} ${script}`;
 }
 
 // Which agents to act on: explicit names, or (--all) every detected one.

@@ -28,15 +28,23 @@ export function db(path = dbPath()): Database {
     cwd TEXT,
     model TEXT,
     effort TEXT,
-    source TEXT NOT NULL DEFAULT 'hook'
+    source TEXT NOT NULL DEFAULT 'hook',
+    tool TEXT,
+    tool_id TEXT
   );`);
   d.exec(`CREATE TABLE IF NOT EXISTS metadata (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );`);
   d.exec("CREATE INDEX IF NOT EXISTS idx_events_session ON events(session, ts);");
-  // Migrate DBs created before model/effort/history-source existed.
-  for (const definition of ["model TEXT", "effort TEXT", "source TEXT NOT NULL DEFAULT 'hook'"]) {
+  // Migrate DBs created before model/effort/history-source/tool tracking.
+  for (const definition of [
+    "model TEXT",
+    "effort TEXT",
+    "source TEXT NOT NULL DEFAULT 'hook'",
+    "tool TEXT",
+    "tool_id TEXT",
+  ]) {
     try {
       d.exec(`ALTER TABLE events ADD COLUMN ${definition};`);
     } catch {
@@ -50,7 +58,7 @@ export function db(path = dbPath()): Database {
 export function insertEvent(e: Event, path = dbPath()): void {
   db(path)
     .query(
-      "INSERT INTO events (ts, kind, agent, session, cwd, model, effort, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO events (ts, kind, agent, session, cwd, model, effort, source, tool, tool_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .run(
       e.ts,
@@ -61,6 +69,8 @@ export function insertEvent(e: Event, path = dbPath()): void {
       e.model ?? null,
       e.effort ?? null,
       e.source ?? "hook",
+      e.tool ?? null,
+      e.toolId ?? null,
     );
 }
 
@@ -68,7 +78,7 @@ export function insertEvents(events: Event[], path = dbPath()): void {
   if (!events.length) return;
   const d = db(path);
   const statement = d.query(
-    "INSERT INTO events (ts, kind, agent, session, cwd, model, effort, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO events (ts, kind, agent, session, cwd, model, effort, source, tool, tool_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   );
   d.transaction(() => {
     for (const e of events) {
@@ -81,15 +91,44 @@ export function insertEvents(events: Event[], path = dbPath()): void {
         e.model ?? null,
         e.effort ?? null,
         e.source ?? "hook",
+        e.tool ?? null,
+        e.toolId ?? null,
       );
     }
   })();
 }
 
+type Row = {
+  ts: number;
+  kind: string;
+  agent: string;
+  session: string;
+  cwd: string | null;
+  model: string | null;
+  effort: string | null;
+  source: "hook" | "history" | null;
+  tool: string | null;
+  tool_id: string | null;
+};
+
 export function allEvents(path = dbPath()): Event[] {
-  return db(path)
-    .query("SELECT ts, kind, agent, session, cwd, model, effort, source FROM events ORDER BY ts")
-    .all() as Event[];
+  const rows = db(path)
+    .query(
+      "SELECT ts, kind, agent, session, cwd, model, effort, source, tool, tool_id FROM events ORDER BY ts",
+    )
+    .all() as Row[];
+  return rows.map((r) => ({
+    ts: r.ts,
+    kind: r.kind as Event["kind"],
+    agent: r.agent,
+    session: r.session,
+    cwd: r.cwd ?? undefined,
+    model: r.model ?? undefined,
+    effort: r.effort ?? undefined,
+    source: r.source ?? "hook",
+    tool: r.tool ?? undefined,
+    toolId: r.tool_id ?? undefined,
+  }));
 }
 
 /** The earliest turn that may be restored from durable agent history. */
