@@ -24592,17 +24592,28 @@ function App2() {
   const { exit } = use_app_default();
   const [stats, setStats] = import_react34.useState(() => computeStats(allEvents()));
   const [note, setNote] = import_react34.useState("");
+  const [confirmReset, setConfirmReset] = import_react34.useState(false);
   import_react34.useEffect(() => {
     const t = setInterval(() => setStats(computeStats(allEvents())), 1000);
     return () => clearInterval(t);
   }, []);
   use_input_default((input) => {
+    if (confirmReset) {
+      if (input === "y") {
+        resetEvents();
+        setStats(computeStats(allEvents()));
+        setNote("reset \u2014 all recorded data erased.");
+      } else {
+        setNote("reset cancelled.");
+      }
+      setConfirmReset(false);
+      return;
+    }
     if (input === "q")
       exit();
     else if (input === "r") {
-      resetEvents();
-      setStats(computeStats(allEvents()));
-      setNote("reset.");
+      setConfirmReset(true);
+      setNote("");
     } else if (input === "s") {
       try {
         const { png } = share(allEvents(), { open: true });
@@ -24765,7 +24776,10 @@ function App2() {
       }, undefined, true, undefined, this),
       /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Box_default, {
         marginTop: 1,
-        children: /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
+        children: confirmReset ? /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
+          color: ORANGE,
+          children: "\u26A0 erase ALL recorded data? press [y] to confirm \xB7 any other key cancels"
+        }, undefined, false, undefined, this) : /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
           dimColor: true,
           children: [
             "[q]uit [s]hare [r]eset",
@@ -24920,7 +24934,8 @@ function claudeTurns(records, path2 = "session.jsonl") {
         session,
         start: pending,
         stop: at2,
-        model: typeof message.model === "string" ? message.model : undefined
+        model: typeof message.model === "string" ? message.model : undefined,
+        effort: typeof record.effort === "string" ? record.effort : undefined
       });
     }
     pending = undefined;

@@ -16,6 +16,7 @@ function App() {
   const { exit } = useApp();
   const [stats, setStats] = useState<Stats>(() => computeStats(allEvents()));
   const [note, setNote] = useState("");
+  const [confirmReset, setConfirmReset] = useState(false);
 
   useEffect(() => {
     const t = setInterval(() => setStats(computeStats(allEvents())), 1000);
@@ -23,11 +24,22 @@ function App() {
   }, []);
 
   useInput((input) => {
+    // Reset erases all recorded data — require an explicit second confirmation.
+    if (confirmReset) {
+      if (input === "y") {
+        resetEvents();
+        setStats(computeStats(allEvents()));
+        setNote("reset — all recorded data erased.");
+      } else {
+        setNote("reset cancelled.");
+      }
+      setConfirmReset(false);
+      return;
+    }
     if (input === "q") exit();
     else if (input === "r") {
-      resetEvents();
-      setStats(computeStats(allEvents()));
-      setNote("reset.");
+      setConfirmReset(true);
+      setNote("");
     } else if (input === "s") {
       try {
         const { png } = share(allEvents(), { open: true });
@@ -109,7 +121,13 @@ function App() {
       )}
 
       <Box marginTop={1}>
-        <Text dimColor>[q]uit [s]hare [r]eset{note ? `   ${note}` : ""}</Text>
+        {confirmReset ? (
+          <Text color={ORANGE}>
+            ⚠ erase ALL recorded data? press [y] to confirm · any other key cancels
+          </Text>
+        ) : (
+          <Text dimColor>[q]uit [s]hare [r]eset{note ? `   ${note}` : ""}</Text>
+        )}
       </Box>
     </Box>
   );

@@ -162,6 +162,9 @@ export function claudeTurns(records: HistoryRecord[], path = "session.jsonl"): H
         start: pending,
         stop: at,
         model: typeof message.model === "string" ? message.model : undefined,
+        // Claude records reasoning effort at the top level of the assistant
+        // record (same field the live Stop hook reads from the transcript).
+        effort: typeof record.effort === "string" ? record.effort : undefined,
       });
     }
     pending = undefined;
