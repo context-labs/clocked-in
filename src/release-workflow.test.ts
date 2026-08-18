@@ -23,9 +23,11 @@ test("release builds every published target on a native runner", () => {
   }
 });
 
-test("each built binary is smoke-tested (runs `share`, which loads native resvg)", () => {
+test("each binary is smoke-tested for `share` on a clean machine (no node_modules)", () => {
   expect(wf).toContain("Smoke test");
-  expect(wf).toMatch(/"\$bin" share|\/\$\{\{ matrix\.asset \}\} share|bin.* share/);
+  expect(wf).toContain('"$bin" share'); // runs the render path that embeds wasm+font
+  // must run OUTSIDE the repo so node_modules can't mask an un-embedded asset
+  expect(wf).toMatch(/cp "dist\/release[\s\S]*cd "\$RUNNER_TEMP"/);
 });
 
 test("SHA256SUMS is generated over the collected artifacts and published", () => {

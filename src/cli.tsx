@@ -116,7 +116,7 @@ program
   .action(async (opts) => {
     try {
       const { share } = await import("./share.ts");
-      const { png, text, url } = share(allEvents(), { out: opts.out, open: opts.open });
+      const { png, text, url } = await share(allEvents(), { out: opts.out, open: opts.open });
       console.log(`✓ image → ${png}\n\n${text}\n\nShare it: ${url}`);
       if (opts.open) console.log("(attempted to copy tweet to clipboard and open X)");
     } catch (e) {

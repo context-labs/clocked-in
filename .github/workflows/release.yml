@@ -55,19 +55,23 @@ jobs:
           CLOCKED_IN_ASSET: ${{ matrix.asset }}
         run: bun run build:release
 
-      - name: Smoke test (loads native resvg via `share`)
+      - name: Smoke test on a clean machine (no node_modules fallback)
         run: |
-          bin="dist/release/${{ matrix.asset }}"
+          # Copy the binary OUT of the repo so nothing resolves from node_modules
+          # — this is what a user's machine looks like. Catches un-embedded native
+          # addons / assets (the v0.1.1 macOS crash) that an in-repo run hides.
+          bin="$RUNNER_TEMP/${{ matrix.asset }}"
+          cp "dist/release/${{ matrix.asset }}" "$bin"
           chmod +x "$bin"
+          cd "$RUNNER_TEMP"
           db="$RUNNER_TEMP/smoke.db"
           "$bin" version
-          echo '{"session_id":"smoke"}' | "$bin" hook start --agent claude-code
-          echo '{"session_id":"smoke"}' | "$bin" hook stop --agent claude-code
           CLOCKED_IN_DB="$db" "$bin" hook start --agent claude-code < /dev/null
           CLOCKED_IN_DB="$db" "$bin" hook stop --agent claude-code < /dev/null
+          CLOCKED_IN_DB="$db" "$bin" report < /dev/null
           CLOCKED_IN_DB="$db" "$bin" share --no-open --out "$RUNNER_TEMP/card.png"
           test -s "$RUNNER_TEMP/card.png" || { echo "share produced no PNG"; exit 1; }
-          echo "OK: $bin runs and renders a card"
+          echo "OK: $bin runs and renders a card on a clean machine"
 
       - uses: actions/upload-artifact@v4
         with:

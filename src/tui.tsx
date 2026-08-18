@@ -41,12 +41,10 @@ function App() {
       setConfirmReset(true);
       setNote("");
     } else if (input === "s") {
-      try {
-        const { png } = share(allEvents(), { open: true });
-        setNote(`saved → ${png}`);
-      } catch (e) {
-        setNote(String((e as Error).message));
-      }
+      setNote("rendering share card…");
+      share(allEvents(), { open: true })
+        .then(({ png }) => setNote(`saved → ${png}`))
+        .catch((e) => setNote(String((e as Error).message)));
     }
   });
 

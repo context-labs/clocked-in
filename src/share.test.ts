@@ -20,8 +20,8 @@ test("tweetText names the total and worst agent", () => {
   expect(t).toContain("clocked-in");
 });
 
-test("renderCardPng returns a real PNG buffer", () => {
-  const png = renderCardPng(computeStats(events));
+test("renderCardPng returns a real PNG buffer (via embedded wasm + font)", async () => {
+  const png = await renderCardPng(computeStats(events));
   expect(png.length).toBeGreaterThan(1000);
   expect(png.subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])); // PNG magic
 });
@@ -31,11 +31,8 @@ test("share tolerates missing opener and clipboard commands", async () => {
   const out = join(tmpdir(), `clocked-in-share-${crypto.randomUUID()}.png`);
   try {
     process.env.PATH = "";
-    let result: ReturnType<typeof share> | undefined;
-    expect(() => {
-      result = share(events, { open: true, out });
-    }).not.toThrow();
-    expect(result?.url).toStartWith("https://twitter.com/intent/tweet");
+    const result = await share(events, { open: true, out });
+    expect(result.url).toStartWith("https://twitter.com/intent/tweet");
     await Bun.sleep(0);
   } finally {
     process.env.PATH = path;

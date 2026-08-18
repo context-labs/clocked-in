@@ -15,8 +15,6 @@ const result = await Bun.build({
   ],
   outdir: dist,
   target: "bun",
-  // bun:sqlite is a builtin; resvg is a native addon — keep them external.
-  external: ["@resvg/resvg-js"],
   // react-devtools-core is a dev-only import inside Ink (used only when DEV=true)
   // but sits in the module graph. Stub it so prod never needs the package.
   plugins: [

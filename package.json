@@ -47,6 +47,6 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@resvg/resvg-js": "^2.6.2"
+    "@resvg/resvg-wasm": "^2.6.2"
   }
 }

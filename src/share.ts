@@ -1,4 +1,4 @@
-import { Resvg } from "@resvg/resvg-js";
+import { initWasm, Resvg } from "@resvg/resvg-wasm";
 import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
@@ -6,6 +6,11 @@ import { join, resolve } from "node:path";
 import { headline, renderCardSvg } from "./card.ts";
 import { fmtDuration, type Event } from "./events.ts";
 import { computeStats, type Stats } from "./stats.ts";
+// Embed the WASM rasterizer and font INTO the bundle/standalone binary. Unlike
+// the native @resvg/resvg-js addon (which bun --compile can't embed on macOS),
+// a `with { type: "file" }` asset is portable and works on a clean machine.
+import fontAsset from "../assets/Geist-Regular.ttf" with { type: "file" };
+import wasmAsset from "@resvg/resvg-wasm/index_bg.wasm" with { type: "file" };
 
 export function tweetText(stats: Stats): string {
   const worst = stats.byAgent[0];
@@ -13,16 +18,26 @@ export function tweetText(stats: Stats): string {
   return `Holy shit — I've spent ${headline(stats.totalMs)} of my life waiting for coding agents to finish. 🫠\n\nAcross ${stats.turns} turns.${worstLine}\n\nMeasure your own wait: github.com/context-labs/clocked-in`;
 }
 
-// Bundled so the card renders identically on any machine (no system fonts needed).
-const FONT_FILE = resolve(import.meta.dir, "../assets/Geist-Regular.ttf");
+// Resolve emitted-asset paths against this module's dir, not the process CWD:
+// bundled output emits a relative path; the compiled binary embeds an absolute
+// one (resolve leaves absolute paths untouched).
+const assetPath = (p: string) => resolve(import.meta.dir, p);
 
-export function renderCardPng(stats: Stats): Buffer {
+let wasmReady: Promise<void> | undefined;
+const ensureWasm = () =>
+  (wasmReady ??= Bun.file(assetPath(wasmAsset))
+    .arrayBuffer()
+    .then((b) => initWasm(b)));
+
+export async function renderCardPng(stats: Stats): Promise<Buffer> {
+  await ensureWasm();
+  const font = new Uint8Array(await Bun.file(assetPath(fontAsset)).arrayBuffer());
   const resvg = new Resvg(renderCardSvg(stats), {
     background: "#0b0e14",
     fitTo: { mode: "width", value: 1200 },
-    font: { loadSystemFonts: false, fontFiles: [FONT_FILE], defaultFontFamily: "Geist" },
+    font: { loadSystemFonts: false, fontBuffers: [font], defaultFontFamily: "Geist" },
   });
-  return resvg.render().asPng();
+  return Buffer.from(resvg.render().asPng());
 }
 
 function openUrl(url: string): void {
@@ -58,16 +73,16 @@ export function tweetUrl(text: string): string {
 }
 
 // Build the share artifacts. `open` controls side effects (off in tests).
-export function share(
+export async function share(
   events: Event[],
   opts: { out?: string; open?: boolean } = {},
-): { png: string; text: string; url: string } {
+): Promise<{ png: string; text: string; url: string }> {
   const stats = computeStats(events);
   if (!stats.turns) throw new Error("Nothing to share yet — no waiting recorded.");
   const out = opts.out ?? join(homedir(), ".clocked-in", "share.png");
   const text = tweetText(stats);
   const url = tweetUrl(text);
-  writeFileSync(out, renderCardPng(stats));
+  writeFileSync(out, await renderCardPng(stats));
   if (opts.open) {
     copyToClipboard(text);
     openUrl(url);
