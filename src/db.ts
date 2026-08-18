@@ -9,6 +9,7 @@ export function dbPath(): string {
 }
 
 const cache = new Map<string, Database>();
+const HISTORY_RESET_KEY = "history_reset_at";
 
 export function db(path = dbPath()): Database {
   const hit = cache.get(path);
@@ -26,13 +27,26 @@ export function db(path = dbPath()): Database {
     session TEXT NOT NULL,
     cwd TEXT,
     model TEXT,
-    effort TEXT
+    effort TEXT,
+    source TEXT NOT NULL DEFAULT 'hook',
+    tool TEXT,
+    tool_id TEXT
+  );`);
+  d.exec(`CREATE TABLE IF NOT EXISTS metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
   );`);
   d.exec("CREATE INDEX IF NOT EXISTS idx_events_session ON events(session, ts);");
-  // Migrate DBs created before these columns existed. (tool_id maps to Event.toolId)
-  for (const col of ["model", "effort", "tool", "tool_id"]) {
+  // Migrate DBs created before model/effort/history-source/tool tracking.
+  for (const definition of [
+    "model TEXT",
+    "effort TEXT",
+    "source TEXT NOT NULL DEFAULT 'hook'",
+    "tool TEXT",
+    "tool_id TEXT",
+  ]) {
     try {
-      d.exec(`ALTER TABLE events ADD COLUMN ${col} TEXT;`);
+      d.exec(`ALTER TABLE events ADD COLUMN ${definition};`);
     } catch {
       // column already exists
     }
@@ -44,7 +58,7 @@ export function db(path = dbPath()): Database {
 export function insertEvent(e: Event, path = dbPath()): void {
   db(path)
     .query(
-      "INSERT INTO events (ts, kind, agent, session, cwd, model, effort, tool, tool_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO events (ts, kind, agent, session, cwd, model, effort, source, tool, tool_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .run(
       e.ts,
@@ -54,9 +68,34 @@ export function insertEvent(e: Event, path = dbPath()): void {
       e.cwd ?? null,
       e.model ?? null,
       e.effort ?? null,
+      e.source ?? "hook",
       e.tool ?? null,
       e.toolId ?? null,
     );
+}
+
+export function insertEvents(events: Event[], path = dbPath()): void {
+  if (!events.length) return;
+  const d = db(path);
+  const statement = d.query(
+    "INSERT INTO events (ts, kind, agent, session, cwd, model, effort, source, tool, tool_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  );
+  d.transaction(() => {
+    for (const e of events) {
+      statement.run(
+        e.ts,
+        e.kind,
+        e.agent,
+        e.session,
+        e.cwd ?? null,
+        e.model ?? null,
+        e.effort ?? null,
+        e.source ?? "hook",
+        e.tool ?? null,
+        e.toolId ?? null,
+      );
+    }
+  })();
 }
 
 type Row = {
@@ -67,6 +106,7 @@ type Row = {
   cwd: string | null;
   model: string | null;
   effort: string | null;
+  source: "hook" | "history" | null;
   tool: string | null;
   tool_id: string | null;
 };
@@ -74,7 +114,7 @@ type Row = {
 export function allEvents(path = dbPath()): Event[] {
   const rows = db(path)
     .query(
-      "SELECT ts, kind, agent, session, cwd, model, effort, tool, tool_id FROM events ORDER BY ts",
+      "SELECT ts, kind, agent, session, cwd, model, effort, source, tool, tool_id FROM events ORDER BY ts",
     )
     .all() as Row[];
   return rows.map((r) => ({
@@ -85,11 +125,28 @@ export function allEvents(path = dbPath()): Event[] {
     cwd: r.cwd ?? undefined,
     model: r.model ?? undefined,
     effort: r.effort ?? undefined,
+    source: r.source ?? "hook",
     tool: r.tool ?? undefined,
     toolId: r.tool_id ?? undefined,
   }));
 }
 
-export function resetEvents(path = dbPath()): void {
-  db(path).exec("DELETE FROM events;");
+/** The earliest turn that may be restored from durable agent history. */
+export function historyResetAt(path = dbPath()): number {
+  const row = db(path).query("SELECT value FROM metadata WHERE key = ?").get(HISTORY_RESET_KEY) as {
+    value: string;
+  } | null;
+  const at = Number(row?.value);
+  return Number.isFinite(at) ? at : 0;
+}
+
+export function resetEvents(path = dbPath(), resetAt = Date.now()): void {
+  const d = db(path);
+  const saveReset = d.query(
+    "INSERT INTO metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  );
+  d.transaction(() => {
+    d.exec("DELETE FROM events;");
+    saveReset.run(HISTORY_RESET_KEY, String(resetAt));
+  })();
 }

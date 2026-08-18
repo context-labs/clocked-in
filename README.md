@@ -68,6 +68,7 @@ Restart your agent(s), work as usual, then:
 ```sh
 clocked-in            # live TUI (default)
 clocked-in report     # one-shot text summary  (--days 7 to window it)
+clocked-in history    # import completed turns from saved Codex/Claude Code history
 clocked-in share      # generate a PNG card + draft a tweet, opens X
 ```
 
@@ -150,6 +151,10 @@ so richer views like time-of-day heatmaps can be added later without re-recordin
 - Each `start` pairs with the next `stop` in the same session; re-prompting
   before a stop replaces the pending start (you interrupted).
 - Events go into SQLite at `~/.clocked-in/clocked-in.db` (override `CLOCKED_IN_DB`).
+- On startup, `clocked-in` imports completed turns from Codex rollouts and Claude
+  Code project transcripts, so your total includes work done before hooks were
+  installed. Run `clocked-in history` to import them on demand; imports are
+  deduplicated against prior imports and hook-captured turns.
 
 *Caveat:* v1 counts submit→stop as "wait", which includes time you spent
 answering permission prompts. Documented ceiling; refine later.

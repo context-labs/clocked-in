@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { allEvents } from "./db.ts";
 import { KIND } from "./events.ts";
 import { runHook } from "./hook.ts";
+import { syncHistory } from "./history.ts";
 import { installAgents, uninstallAgents } from "./install.ts";
 import { report } from "./report.ts";
 import { AGENTS } from "./agents.ts";
@@ -16,6 +17,7 @@ program
 // Default: open the TUI (lazy-imported so `hook`, the hot path, skips Ink/React).
 // Non-interactive (piped/CI) → print the text report instead of crashing on raw mode.
 program.action(async () => {
+  syncHistory();
   if (!process.stdout.isTTY) return console.log(report(allEvents()));
   const { runTui } = await import("./tui.tsx");
   runTui();
@@ -25,7 +27,20 @@ program
   .command("report")
   .description("Print a text summary of time spent waiting")
   .option("-d, --days <n>", "only the last N days", (v) => Number(v))
-  .action((opts) => console.log(report(allEvents(), { days: opts.days })));
+  .action((opts) => {
+    syncHistory();
+    console.log(report(allEvents(), { days: opts.days }));
+  });
+
+program
+  .command("history")
+  .description("Import completed turns from saved Codex and Claude Code history")
+  .action(() => {
+    const result = syncHistory();
+    console.log(
+      `✓ scanned ${result.files} history file${result.files === 1 ? "" : "s"}; found ${result.found} completed turn${result.found === 1 ? "" : "s"}; imported ${result.imported}`,
+    );
+  });
 
 program
   .command("install [agents...]")
@@ -79,6 +94,7 @@ program
   .option("--no-open", "don't open X or copy to clipboard")
   .action(async (opts) => {
     try {
+      syncHistory();
       // Lazy so the hook hot path never loads the native resvg addon.
       const { share } = await import("./share.ts");
       const { png, text, url } = share(allEvents(), { out: opts.out, open: opts.open });

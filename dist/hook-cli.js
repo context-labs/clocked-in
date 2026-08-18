@@ -193,22 +193,46 @@ function db(path = dbPath()) {
     session TEXT NOT NULL,
     cwd TEXT,
     model TEXT,
-    effort TEXT
+    effort TEXT,
+    source TEXT NOT NULL DEFAULT 'hook',
+    tool TEXT,
+    tool_id TEXT
+  );`);
+  d.exec(`CREATE TABLE IF NOT EXISTS metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
   );`);
   d.exec("CREATE INDEX IF NOT EXISTS idx_events_session ON events(session, ts);");
-  for (const col of ["model", "effort", "tool", "tool_id"]) {
+  for (const definition of [
+    "model TEXT",
+    "effort TEXT",
+    "source TEXT NOT NULL DEFAULT 'hook'",
+    "tool TEXT",
+    "tool_id TEXT"
+  ]) {
     try {
-      d.exec(`ALTER TABLE events ADD COLUMN ${col} TEXT;`);
+      d.exec(`ALTER TABLE events ADD COLUMN ${definition};`);
     } catch {}
   }
   cache.set(path, d);
   return d;
 }
 function insertEvent(e, path = dbPath()) {
-  db(path).query("INSERT INTO events (ts, kind, agent, session, cwd, model, effort, tool, tool_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(e.ts, e.kind, e.agent, e.session, e.cwd ?? null, e.model ?? null, e.effort ?? null, e.tool ?? null, e.toolId ?? null);
+  db(path).query("INSERT INTO events (ts, kind, agent, session, cwd, model, effort, source, tool, tool_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(e.ts, e.kind, e.agent, e.session, e.cwd ?? null, e.model ?? null, e.effort ?? null, e.source ?? "hook", e.tool ?? null, e.toolId ?? null);
+}
+function insertEvents(events, path = dbPath()) {
+  if (!events.length)
+    return;
+  const d = db(path);
+  const statement = d.query("INSERT INTO events (ts, kind, agent, session, cwd, model, effort, source, tool, tool_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+  d.transaction(() => {
+    for (const e of events) {
+      statement.run(e.ts, e.kind, e.agent, e.session, e.cwd ?? null, e.model ?? null, e.effort ?? null, e.source ?? "hook", e.tool ?? null, e.toolId ?? null);
+    }
+  })();
 }
 function allEvents(path = dbPath()) {
-  const rows = db(path).query("SELECT ts, kind, agent, session, cwd, model, effort, tool, tool_id FROM events ORDER BY ts").all();
+  const rows = db(path).query("SELECT ts, kind, agent, session, cwd, model, effort, source, tool, tool_id FROM events ORDER BY ts").all();
   return rows.map((r) => ({
     ts: r.ts,
     kind: r.kind,
@@ -217,14 +241,25 @@ function allEvents(path = dbPath()) {
     cwd: r.cwd ?? undefined,
     model: r.model ?? undefined,
     effort: r.effort ?? undefined,
+    source: r.source ?? "hook",
     tool: r.tool ?? undefined,
     toolId: r.tool_id ?? undefined
   }));
 }
-function resetEvents(path = dbPath()) {
-  db(path).exec("DELETE FROM events;");
+function historyResetAt(path = dbPath()) {
+  const row = db(path).query("SELECT value FROM metadata WHERE key = ?").get(HISTORY_RESET_KEY);
+  const at = Number(row?.value);
+  return Number.isFinite(at) ? at : 0;
 }
-var cache;
+function resetEvents(path = dbPath(), resetAt = Date.now()) {
+  const d = db(path);
+  const saveReset = d.query("INSERT INTO metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value");
+  d.transaction(() => {
+    d.exec("DELETE FROM events;");
+    saveReset.run(HISTORY_RESET_KEY, String(resetAt));
+  })();
+}
+var cache, HISTORY_RESET_KEY = "history_reset_at";
 var init_db = __esm(() => {
   cache = new Map;
 });

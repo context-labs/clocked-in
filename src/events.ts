@@ -20,6 +20,7 @@ export type Event = {
   cwd?: string;
   model?: string; // the model that ran the turn (known on `stop`)
   effort?: string; // reasoning effort, if the harness exposes it
+  source?: "hook" | "history";
   tool?: string; // tool name (on tool_start/tool_end), e.g. "Bash"
   toolId?: string; // tool_use_id, used to pair tool_start↔tool_end
 };
