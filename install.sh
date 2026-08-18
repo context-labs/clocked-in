@@ -1,5 +1,5 @@
 #!/bin/sh
-# clocked-in installer — downloads the released binary, verifies its checksum
+# clocked-in installer - downloads the released binary, verifies its checksum
 # against the published SHA256SUMS, and installs it to a directory on your PATH.
 #
 # Everything it does is printed as it happens. Read it first if you like:
@@ -40,19 +40,19 @@ ASSET="clocked-in-$os-$arch"
 # --- version ---
 VERSION="${CLOCKED_IN_VERSION:-}"
 if [ -z "$VERSION" ]; then
-  say "Resolving latest release…"
+  say "Resolving latest release..."
   VERSION=$($DLo "https://api.github.com/repos/$REPO/releases/latest" \
     | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
   [ -n "$VERSION" ] || die "could not determine the latest release (set CLOCKED_IN_VERSION)"
 fi
 
-printf '\nclocked-in %s — %s\n' "$VERSION" "$ASSET"
+printf '\nclocked-in %s - %s\n' "$VERSION" "$ASSET"
 
 # --- download + verify ---
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-say "Downloading $ASSET…"
+say "Downloading $ASSET..."
 $DL "$tmp/$ASSET" "$BASE_URL/$VERSION/$ASSET" || die "download failed"
-say "Downloading SHA256SUMS…"
+say "Downloading SHA256SUMS..."
 $DL "$tmp/SHA256SUMS" "$BASE_URL/$VERSION/SHA256SUMS" || die "checksum list download failed"
 
 expected=$(grep " $ASSET\$" "$tmp/SHA256SUMS" | cut -d' ' -f1)
@@ -60,8 +60,8 @@ expected=$(grep " $ASSET\$" "$tmp/SHA256SUMS" | cut -d' ' -f1)
 actual=$(SHA "$tmp/$ASSET")
 say "expected sha256: $expected"
 say "actual   sha256: $actual"
-[ "$expected" = "$actual" ] || die "CHECKSUM MISMATCH — refusing to install. The download does not match the published checksum."
-say "✓ checksum verified"
+[ "$expected" = "$actual" ] || die "CHECKSUM MISMATCH - refusing to install. The download does not match the published checksum."
+say "OK: checksum verified"
 chmod 755 "$tmp/$ASSET"
 
 # --- pick an install dir on PATH (first writable wins; create ~/.local/bin if needed) ---
@@ -74,13 +74,13 @@ else
   for d in /usr/local/bin /opt/homebrew/bin "$HOME/.local/bin" "$HOME/bin"; do
     if [ -d "$d" ] && [ -w "$d" ]; then DEST="$d"; break; fi
   done
-  # nothing writable existed — create the standard user dir
+  # nothing writable existed - create the standard user dir
   [ -z "$DEST" ] && { mkdir -p "$HOME/.local/bin" && DEST="$HOME/.local/bin"; }
 fi
 [ -n "$DEST" ] && [ -w "$DEST" ] || die "no writable install directory found"
 
 mv "$tmp/$ASSET" "$DEST/clocked-in"
-say "✓ installed to $DEST/clocked-in"
+say "OK: installed to $DEST/clocked-in"
 
 # --- ensure it's on PATH ---
 if ! in_path "$DEST"; then
@@ -95,7 +95,7 @@ if ! in_path "$DEST"; then
     [ -e "$rc" ] || continue
     grep -qF "$line" "$rc" 2>/dev/null || printf '\n# clocked-in\n%s\n' "$line" >> "$rc"
   done
-  say "Added $DEST to your PATH — restart your shell, or run now: $line"
+  say "Added $DEST to your PATH - restart your shell, or run now: $line"
 fi
 
 printf '\n'
