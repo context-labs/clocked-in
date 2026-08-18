@@ -4,8 +4,9 @@ import { AGENTS, type Agent } from "./events.ts";
 
 // Our hook commands match this signature in both forms — global (`clocked-in
 // hook …`) and `--local` (`bun /path/cli.tsx hook …`). Uninstall uses it to find
-// and remove only our entries without touching the user's own hooks.
-const OUR_CMD = /\bhook (?:start|stop) --agent (?:claude-code|codex|grok|opencode|pi)\b/;
+// and remove only our entries without touching the user's own hooks. Derived
+// from AGENTS so it can never drift out of sync with the supported set.
+const OUR_CMD = new RegExp(`\\bhook (?:start|stop) --agent (?:${AGENTS.join("|")})\\b`);
 
 export type AgentInstaller = {
   name: Agent;
@@ -81,6 +82,40 @@ function grokConfig(base: string): unknown {
   };
 }
 
+// --- Cursor (desktop IDE + cursor-agent CLI): ~/.cursor/hooks.json ---
+// Distinct shape from Claude: top-level `version`, events beforeSubmitPrompt/stop,
+// and entries are bare { command } objects (no nested hooks array).
+type CursorEntry = { command: string };
+function mergeCursorHooks(file: string, base: string): void {
+  const data = readJson(file);
+  data.version ??= 1;
+  const hooks = (data.hooks ??= {});
+  for (const [event, kind] of [
+    ["beforeSubmitPrompt", "start"],
+    ["stop", "stop"],
+  ] as const) {
+    const arr: CursorEntry[] = Array.isArray(hooks[event]) ? hooks[event] : [];
+    const others = arr.filter((e) => !(typeof e.command === "string" && OUR_CMD.test(e.command)));
+    others.push({ command: cmd(base, kind, "cursor") });
+    hooks[event] = others;
+  }
+  writeJson(file, data);
+}
+
+function unmergeCursorHooks(file: string): void {
+  if (!existsSync(file)) return;
+  const data = readJson(file);
+  if (!data.hooks) return;
+  for (const event of Object.keys(data.hooks)) {
+    if (!Array.isArray(data.hooks[event])) continue;
+    data.hooks[event] = data.hooks[event].filter(
+      (e: CursorEntry) => !(typeof e.command === "string" && OUR_CMD.test(e.command)),
+    );
+    if (data.hooks[event].length === 0) delete data.hooks[event];
+  }
+  writeJson(file, data);
+}
+
 // --- plugin-module agents (opencode, pi): a TS file that shells out ---
 function opencodePlugin(base: string): string {
   return `// clocked-in — auto-generated. Records how long you wait for opencode.
@@ -142,6 +177,13 @@ export const INSTALLERS: AgentInstaller[] = [
     detected: (h) => existsSync(join(h, ".grok")),
     install: (base, h) => writeJson(join(h, ".grok", "hooks", "clocked-in.json"), grokConfig(base)),
     uninstall: (h) => removeFile(join(h, ".grok", "hooks", "clocked-in.json")),
+  },
+  {
+    name: "cursor",
+    path: (h) => join(h, ".cursor", "hooks.json"),
+    detected: (h) => existsSync(join(h, ".cursor")),
+    install: (base, h) => mergeCursorHooks(join(h, ".cursor", "hooks.json"), base),
+    uninstall: (h) => unmergeCursorHooks(join(h, ".cursor", "hooks.json")),
   },
   {
     name: "opencode",

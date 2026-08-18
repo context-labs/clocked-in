@@ -21,5 +21,16 @@ export function report(events: Event[], opts: { days?: number; now?: number } = 
       `    ${a.agent.padEnd(14)} ${fmtDuration(a.ms).padStart(10)}  (${a.turns} turns, ${fmtDuration(a.ms / a.turns)}/turn)`,
     );
   }
+
+  lines.push("", "  By model & effort:");
+  for (const a of s.byAgent) {
+    const rows = s.byModel.filter((m) => m.agent === a.agent);
+    lines.push(`    ${a.agent}`);
+    for (const m of rows) {
+      lines.push(
+        `      ${m.model.padEnd(22)} ${m.effort.padEnd(7)} ${fmtDuration(m.ms).padStart(10)}  (${m.turns} turns)`,
+      );
+    }
+  }
   return lines.join("\n");
 }

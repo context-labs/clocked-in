@@ -51,6 +51,32 @@ test("grok: writes own file, uninstall deletes it", () => {
   expect(existsSync(file)).toBe(false);
 });
 
+test("cursor: version + beforeSubmitPrompt/stop entries, clean uninstall", () => {
+  mkdirSync(join(home, ".cursor"), { recursive: true });
+  const file = join(home, ".cursor", "hooks.json");
+  writeFileSync(
+    file,
+    JSON.stringify({ version: 1, hooks: { stop: [{ command: "user-audit.sh" }] } }),
+  );
+
+  installAgents(["cursor"], { home });
+  let cfg = readJson(file);
+  expect(cfg.version).toBe(1);
+  expect(cfg.hooks.beforeSubmitPrompt[0].command).toContain("hook start --agent cursor");
+  expect(cfg.hooks.stop).toHaveLength(2); // user's + ours
+  expect(cfg.hooks.stop.map((e: { command: string }) => e.command)).toContain("user-audit.sh");
+
+  installAgents(["cursor"], { home }); // idempotent
+  cfg = readJson(file);
+  expect(cfg.hooks.stop).toHaveLength(2);
+
+  uninstallAgents(["cursor"], { home });
+  cfg = readJson(file);
+  expect(cfg.hooks.beforeSubmitPrompt).toBeUndefined();
+  expect(cfg.hooks.stop).toEqual([{ command: "user-audit.sh" }]);
+  expect(JSON.stringify(cfg)).not.toContain("clocked-in");
+});
+
 test("--all only touches detected agents", () => {
   mkdirSync(join(home, ".claude"), { recursive: true });
   mkdirSync(join(home, ".codex"), { recursive: true });

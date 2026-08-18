@@ -3,8 +3,9 @@ node_modules
 
 # output
 out
-dist
 *.tgz
+# dist/ is the committed, bundled CLI artifact (bin) — it must be tracked so
+# `bun install -g github:...` works without a build step. Do not ignore it.
 
 # code coverage
 coverage

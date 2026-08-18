@@ -1,11 +1,14 @@
 import { pairIntervals, type Event, type Interval } from "./events.ts";
 
+export type ModelRow = { agent: string; model: string; effort: string; ms: number; turns: number };
+
 export type Stats = {
   totalMs: number;
   todayMs: number;
   turns: number;
   longest: Interval | null;
   byAgent: { agent: string; ms: number; turns: number }[]; // sorted desc by ms
+  byModel: ModelRow[]; // per harness → model → effort, sorted desc by ms
 };
 
 const DAY_MS = 86_400_000;
@@ -17,6 +20,7 @@ export function computeStats(events: Event[], opts: { days?: number; now?: numbe
   const intervals = pairIntervals(events).filter((i) => i.start >= cutoff);
 
   const agents = new Map<string, { ms: number; turns: number }>();
+  const models = new Map<string, ModelRow>();
   let totalMs = 0;
   let todayMs = 0;
   let longest: Interval | null = null;
@@ -28,6 +32,14 @@ export function computeStats(events: Event[], opts: { days?: number; now?: numbe
     g.ms += i.ms;
     g.turns += 1;
     agents.set(i.agent, g);
+
+    const model = i.model ?? "unknown";
+    const effort = i.effort ?? "—";
+    const key = `${i.agent}\0${model}\0${effort}`;
+    const m = models.get(key) ?? { agent: i.agent, model, effort, ms: 0, turns: 0 };
+    m.ms += i.ms;
+    m.turns += 1;
+    models.set(key, m);
   }
 
   return {
@@ -36,5 +48,6 @@ export function computeStats(events: Event[], opts: { days?: number; now?: numbe
     turns: intervals.length,
     longest,
     byAgent: [...agents].map(([agent, g]) => ({ agent, ...g })).sort((a, b) => b.ms - a.ms),
+    byModel: [...models.values()].sort((a, b) => b.ms - a.ms),
   };
 }

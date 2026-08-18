@@ -24,22 +24,34 @@ export function db(path = dbPath()): Database {
     kind TEXT NOT NULL,
     agent TEXT NOT NULL,
     session TEXT NOT NULL,
-    cwd TEXT
+    cwd TEXT,
+    model TEXT,
+    effort TEXT
   );`);
   d.exec("CREATE INDEX IF NOT EXISTS idx_events_session ON events(session, ts);");
+  // Migrate DBs created before model/effort existed.
+  for (const col of ["model", "effort"]) {
+    try {
+      d.exec(`ALTER TABLE events ADD COLUMN ${col} TEXT;`);
+    } catch {
+      // column already exists
+    }
+  }
   cache.set(path, d);
   return d;
 }
 
 export function insertEvent(e: Event, path = dbPath()): void {
   db(path)
-    .query("INSERT INTO events (ts, kind, agent, session, cwd) VALUES (?, ?, ?, ?, ?)")
-    .run(e.ts, e.kind, e.agent, e.session, e.cwd ?? null);
+    .query(
+      "INSERT INTO events (ts, kind, agent, session, cwd, model, effort) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .run(e.ts, e.kind, e.agent, e.session, e.cwd ?? null, e.model ?? null, e.effort ?? null);
 }
 
 export function allEvents(path = dbPath()): Event[] {
   return db(path)
-    .query("SELECT ts, kind, agent, session, cwd FROM events ORDER BY ts")
+    .query("SELECT ts, kind, agent, session, cwd, model, effort FROM events ORDER BY ts")
     .all() as Event[];
 }
 

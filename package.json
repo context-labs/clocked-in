@@ -3,14 +3,16 @@
   "module": "src/cli.tsx",
   "type": "module",
   "version": "0.1.0",
-  "description": "Measure how much time you spend waiting on coding agents (Claude Code, Codex, Grok, opencode, pi).",
+  "description": "Measure how much time you spend waiting on coding agents (Claude Code, Codex, Grok, Cursor, opencode, pi).",
   "license": "MIT",
-  "keywords": ["cli", "claude-code", "codex", "grok", "opencode", "agents", "hooks", "tui"],
+  "keywords": ["cli", "claude-code", "codex", "grok", "cursor", "opencode", "agents", "hooks", "tui"],
   "bin": {
-    "clocked-in": "src/cli.tsx"
+    "clocked-in": "dist/cli.js"
   },
-  "files": ["src", "assets"],
+  "files": ["dist", "assets", "src"],
   "scripts": {
+    "build": "bun run scripts/build.ts",
+    "prepublishOnly": "bun run build",
     "start": "bun src/cli.tsx",
     "test": "bun test",
     "check": "tsgo --noEmit && oxlint && bun test"
@@ -19,16 +21,16 @@
     "@types/bun": "latest",
     "@types/react": "^19.2.18",
     "@typescript/native-preview": "^7.0.0-dev.20260707.2",
+    "commander": "^15.0.0",
+    "ink": "^7.1.1",
     "oxfmt": "^0.63.0",
-    "oxlint": "^1.78.0"
+    "oxlint": "^1.78.0",
+    "react": "^19.2.8"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
-    "@resvg/resvg-js": "^2.6.2",
-    "commander": "^15.0.0",
-    "ink": "^7.1.1",
-    "react": "^19.2.8"
+    "@resvg/resvg-js": "^2.6.2"
   }
 }

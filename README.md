@@ -26,17 +26,33 @@ Measure it.
 
 ## Install
 
-Not on npm yet — install straight from GitHub with Bun ([Bun](https://bun.sh) required):
+Not on npm yet — install straight from GitHub. **[Bun](https://bun.sh) is
+required to run it** (the CLI ships a Bun-native binary and uses `bun:sqlite`),
+but you can install it with whichever package manager you like:
 
 ```sh
-bun install -g github:context-labs/clocked-in
-# pin a branch/tag/commit:  github:context-labs/clocked-in#main
-# https instead of ssh:      git+https://github.com/context-labs/clocked-in.git
+bun install -g  github:context-labs/clocked-in     # recommended
+npm  install -g github:context-labs/clocked-in
+pnpm add -g     github:context-labs/clocked-in
+yarn global add github:context-labs/clocked-in
 ```
 
-That puts a global `clocked-in` on your PATH (Bun installs the deps and links the
-bin — no build step). If `clocked-in` isn't found afterward, add Bun's global bin
-dir to your PATH: `export PATH="$(bun pm bin -g):$PATH"`.
+Run it once without installing:
+
+```sh
+bunx github:context-labs/clocked-in            # or: pnpm dlx / npx github:context-labs/clocked-in
+```
+
+Getting a `tarball/ 404` right after the repo went public? GitHub's API is
+briefly cached — pin the branch to skip the default-branch lookup:
+
+```sh
+bun install -g github:context-labs/clocked-in#main
+```
+
+Any of these put a global `clocked-in` on your PATH — no build step (the bin is
+prebundled). If `clocked-in` isn't found afterward, add Bun's global bin dir to
+your PATH: `export PATH="$(bun pm bin -g):$PATH"`.
 
 Then wire the hooks in:
 
@@ -67,6 +83,7 @@ You can also target specific agents: `clocked-in install claude-code grok`.
 | Claude Code | `UserPromptSubmit`/`Stop` hooks | `~/.claude/settings.json` (merged) |
 | Codex | `UserPromptSubmit`/`Stop` hooks | `~/.codex/hooks.json` (merged) |
 | Grok | Claude-compatible hooks | `~/.grok/hooks/clocked-in.json` |
+| Cursor (IDE + `cursor-agent`) | `beforeSubmitPrompt`/`stop` hooks | `~/.cursor/hooks.json` (merged) |
 | opencode | plugin (`session.idle`) | `~/.config/opencode/plugin/clocked-in.ts` ¹ |
 | pi | extension | `~/.config/pi/extensions/clocked-in.ts` ¹ |
 
@@ -81,10 +98,27 @@ drafted tweet to your clipboard, and opens the X compose window. The image is
 self-contained (bundled font) so it looks identical everywhere. `--no-open`
 skips the clipboard/browser side effects; `--out <path>` picks the file.
 
+## Breakdown by model & reasoning effort
+
+`report` and the TUI also break your wait down **per harness → model → effort**:
+
+```
+  By model & effort:
+    claude-code
+      claude-opus-4-8        high         9h 21m  (188 turns)
+      claude-sonnet-4        medium       1h 02m  (12 turns)
+    codex
+      gpt-5.6-terra          xhigh        3h 21m  (41 turns)
+```
+
+Model and effort are read on `stop` from the harness's transcript (Claude Code
+records `message.model` + `effort`) or from the hook's stdin (Codex/Grok expose
+`model`). When a harness exposes neither, the turn buckets as `unknown` / `—`.
+
 ## How it works
 
 - `start` = you submitted a prompt (the wait begins).
-- `stop`  = the agent finished (the wait ends).
+- `stop`  = the agent finished (the wait ends); model + effort are captured here.
 - Each `start` pairs with the next `stop` in the same session; re-prompting
   before a stop replaces the pending start (you interrupted).
 - Events go into SQLite at `~/.clocked-in/clocked-in.db` (override `CLOCKED_IN_DB`).
@@ -97,11 +131,16 @@ answering permission prompts. Documented ceiling; refine later.
 ```sh
 git clone git@github.com:context-labs/clocked-in.git && cd clocked-in
 bun install
-bun link            # optional: puts a global `clocked-in` pointing at your checkout
 task check          # tsgo typecheck + oxlint + oxfmt --check + bun test
-task dev -- report  # run from source without linking
+task dev -- report  # run from source without a build
+bun run build       # rebuild dist/cli.js (the committed, bundled bin) — commit it
 task fmt
 ```
+
+`dist/cli.js` is a **committed** single-file bundle (Ink + React + commander
+inlined so a nested-`node_modules` install can't hit duplicate-React; only the
+native `@resvg/resvg-js` and `bun:sqlite` stay external). Rebuild it with
+`bun run build` whenever you change `src/` and commit the result.
 
 Installing hooks from a source checkout? Use `clocked-in install --all --local`
 so the hooks call your checkout (`bun …/cli.tsx`) instead of a global bin.

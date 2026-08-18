@@ -1,7 +1,7 @@
 // Pure domain logic — no I/O, no Bun/Node deps. Unit-tested in events.test.ts.
 
 /** A supported coding agent. */
-export const AGENTS = ["claude-code", "codex", "grok", "opencode", "pi"] as const;
+export const AGENTS = ["claude-code", "codex", "grok", "cursor", "opencode", "pi"] as const;
 export type Agent = (typeof AGENTS)[number];
 
 export const KIND = { start: "start", stop: "stop" } as const;
@@ -13,9 +13,18 @@ export type Event = {
   agent: string; // one of AGENTS (kept as string — hooks are untrusted input)
   session: string;
   cwd?: string;
+  model?: string; // the model that ran the turn (known on `stop`)
+  effort?: string; // reasoning effort, if the harness exposes it
 };
 
-export type Interval = { agent: string; session: string; start: number; ms: number };
+export type Interval = {
+  agent: string;
+  session: string;
+  start: number;
+  ms: number;
+  model?: string;
+  effort?: string;
+};
 
 // Pair each `start` with the next `stop` in the same session. A new `start`
 // before a `stop` replaces the pending one (user re-prompted / interrupted).
@@ -31,7 +40,15 @@ export function pairIntervals(events: Event[]): Interval[] {
     } else {
       const s = pending.get(e.session);
       if (s) {
-        out.push({ agent: s.agent, session: e.session, start: s.ts, ms: e.ts - s.ts });
+        // model/effort are known at `stop` (the turn has run), so take them from e.
+        out.push({
+          agent: s.agent,
+          session: e.session,
+          start: s.ts,
+          ms: e.ts - s.ts,
+          model: e.model,
+          effort: e.effort,
+        });
         pending.delete(e.session);
       }
     }

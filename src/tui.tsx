@@ -77,6 +77,19 @@ function App() {
         )}
       </Box>
 
+      {stats.byModel.length > 0 && (
+        <Box marginTop={1} flexDirection="column">
+          <Text dimColor>by model · effort</Text>
+          {stats.byModel.slice(0, 6).map((m) => (
+            <Text key={`${m.agent}/${m.model}/${m.effort}`}>
+              <Text dimColor>{`${m.model} · ${m.effort}`.padEnd(30)}</Text>
+              <Text color={ORANGE}>{fmtDuration(m.ms).padStart(9)}</Text>
+              <Text dimColor>{`  ${m.agent} (${m.turns})`}</Text>
+            </Text>
+          ))}
+        </Box>
+      )}
+
       <Box marginTop={1}>
         <Text dimColor>[q]uit [s]hare [r]eset{note ? `   ${note}` : ""}</Text>
       </Box>

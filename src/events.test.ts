@@ -34,6 +34,28 @@ test("a stop with no pending start is ignored", () => {
   expect(pairIntervals([ev(1000, "stop")])).toEqual([]);
 });
 
+test("interval carries model/effort from the stop event", () => {
+  const start: Event = { ts: 1000, kind: "start", agent: "claude-code", session: "s1" };
+  const stop: Event = {
+    ts: 4000,
+    kind: "stop",
+    agent: "claude-code",
+    session: "s1",
+    model: "claude-opus-4-8",
+    effort: "high",
+  };
+  expect(pairIntervals([start, stop])).toEqual([
+    {
+      agent: "claude-code",
+      session: "s1",
+      start: 1000,
+      ms: 3000,
+      model: "claude-opus-4-8",
+      effort: "high",
+    },
+  ]);
+});
+
 test("fmtDuration scales s/m/h/d", () => {
   expect(fmtDuration(3000)).toBe("3s");
   expect(fmtDuration(90000)).toBe("1m 30s");
