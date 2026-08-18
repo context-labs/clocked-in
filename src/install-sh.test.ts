@@ -8,7 +8,9 @@ import { resolve } from "node:path";
 // installer pure ASCII sidesteps every locale/shell quirk of this kind.
 test("install.sh is pure ASCII", () => {
   const src = readFileSync(resolve(import.meta.dir, "../install.sh"), "utf8");
-  const offenders = [...src.matchAll(/[^\x00-\x7F]/g)].map((m) => ({ index: m.index, char: m[0] }));
+  // Any byte > 0x7F is non-ASCII. (Avoid a control-char regex literal — oxlint
+  // flags those — by comparing char codes.)
+  const offenders = [...src].filter((c) => c.charCodeAt(0) > 127);
   expect(offenders).toEqual([]);
 });
 

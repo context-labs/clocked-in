@@ -10,17 +10,21 @@ import { resolve } from "node:path";
 // someone reverts to single-host cross-compilation, this fails.
 const wf = readFileSync(resolve(import.meta.dir, "../.github/workflows/release.yml"), "utf8");
 
-test("release builds every published target on a native runner", () => {
-  // each asset must be produced on a matching OS runner (not cross-compiled)
-  for (const [os, asset] of [
-    ["macos-14", "clocked-in-darwin-arm64"],
-    ["macos-13", "clocked-in-darwin-x64"],
-    ["ubuntu-latest", "clocked-in-linux-x64"],
-    ["ubuntu-24.04-arm", "clocked-in-linux-arm64"],
-  ] as const) {
-    expect(wf).toContain(os);
+test("release builds all four published targets", () => {
+  for (const asset of [
+    "clocked-in-darwin-arm64",
+    "clocked-in-darwin-x64",
+    "clocked-in-linux-x64",
+    "clocked-in-linux-arm64",
+  ]) {
     expect(wf).toContain(asset);
   }
+});
+
+test("darwin-arm64 (the common Mac) is built + smoke-tested on a native macOS runner", () => {
+  // guards against regressing to a Linux-only build of the Mac binary
+  expect(wf).toContain("macos-14");
+  expect(wf).toMatch(/macos-14[\s\S]*bun-darwin-arm64[\s\S]*smoke: true/);
 });
 
 test("each binary is smoke-tested for `share` on a clean machine (no node_modules)", () => {

@@ -28,18 +28,28 @@ jobs:
       fail-fast: true
       matrix:
         include:
+          # Native builds are smoke-tested (the runner can run the binary).
           - os: ubuntu-latest
             target: bun-linux-x64
             asset: clocked-in-linux-x64
+            smoke: true
           - os: ubuntu-24.04-arm
             target: bun-linux-arm64
             asset: clocked-in-linux-arm64
-          - os: macos-13
-            target: bun-darwin-x64
-            asset: clocked-in-darwin-x64
+            smoke: true
           - os: macos-14
             target: bun-darwin-arm64
             asset: clocked-in-darwin-arm64
+            smoke: true
+          # darwin-x64 is cross-built on ubuntu (macOS Intel hosted runners are
+          # scarce and stall releases). Safe now that rendering is WASM, not a
+          # native addon — asset embedding is target-independent. Can't run a
+          # darwin binary on linux, so no smoke here; the arm64 mac job proves
+          # the WASM path works on macOS.
+          - os: ubuntu-latest
+            target: bun-darwin-x64
+            asset: clocked-in-darwin-x64
+            smoke: false
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -56,6 +66,7 @@ jobs:
         run: bun run build:release
 
       - name: Smoke test on a clean machine (no node_modules fallback)
+        if: ${{ matrix.smoke }}
         run: |
           # Copy the binary OUT of the repo so nothing resolves from node_modules
           # — this is what a user's machine looks like. Catches un-embedded native
