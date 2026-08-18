@@ -145,6 +145,10 @@ function unionMs(intervals) {
     total += curEnd - curStart;
   return total;
 }
+function fmtDate(ms) {
+  const d = new Date(ms);
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+}
 function fmtDuration(ms) {
   const s = Math.round(ms / 1000);
   if (s < 60)
@@ -158,7 +162,7 @@ function fmtDuration(ms) {
   const d = Math.floor(h / 24);
   return `${d}d ${h % 24}h`;
 }
-var AGENTS, KIND;
+var AGENTS, KIND, MONTHS;
 var init_events = __esm(() => {
   AGENTS = ["claude-code", "codex", "grok", "cursor", "opencode", "pi"];
   KIND = {
@@ -167,6 +171,7 @@ var init_events = __esm(() => {
     tool_start: "tool_start",
     tool_end: "tool_end"
   };
+  MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 });
 
 // src/db.ts
@@ -2376,11 +2381,14 @@ function computeStats(events, opts = {}) {
   const models = new Map;
   let totalMs = 0;
   let todayMs = 0;
+  let sinceMs = null;
   let longest = null;
   for (const i of intervals) {
     totalMs += i.ms;
     if (i.start >= startOfToday)
       todayMs += i.ms;
+    if (sinceMs === null || i.start < sinceMs)
+      sinceMs = i.start;
     if (!longest || i.ms > longest.ms)
       longest = i;
     const g = agents.get(i.agent) ?? { ms: 0, turns: 0 };
@@ -2412,6 +2420,7 @@ function computeStats(events, opts = {}) {
     humanWaitMs: unionMs(intervals),
     todayMs,
     turns: intervals.length,
+    sinceMs,
     longest,
     byAgent: [...agents].map(([agent, g]) => ({ agent, ...g })).sort((a, b) => b.ms - a.ms),
     byModel: [...models.values()].sort((a, b) => b.ms - a.ms),
@@ -2433,7 +2442,7 @@ function report(events, opts = {}) {
   const s = computeStats(events, opts);
   if (!s.turns)
     return "clocked-in: no waiting recorded yet. Install hooks (clocked-in install --all) and run some agent turns.";
-  const scope = opts.days ? `last ${opts.days}d` : "all time";
+  const scope = s.sinceMs && !opts.days ? `since ${fmtDate(s.sinceMs)}` : opts.days ? `last ${opts.days}d` : "all time";
   const overlap = s.totalMs - s.humanWaitMs;
   const lines = [
     `\u23F1  clocked-in \u2014 time you spent waiting on coding agents (${scope})`,
@@ -24630,10 +24639,18 @@ function App2() {
     paddingY: 1,
     children: [
       /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
-        color: ORANGE,
-        bold: true,
-        children: "\u23F1 clocked-in"
-      }, undefined, false, undefined, this),
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
+            color: ORANGE,
+            bold: true,
+            children: "\u23F1 clocked-in"
+          }, undefined, false, undefined, this),
+          stats.sinceMs && /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
+            dimColor: true,
+            children: `   since ${fmtDate(stats.sinceMs)}`
+          }, undefined, false, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
       /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Box_default, {
         marginTop: 1,
         flexDirection: "column",
@@ -24881,6 +24898,7 @@ function codexTurns(records, path2 = "session.jsonl") {
   let pending;
   let model;
   let effort;
+  let tools = [];
   const turns = [];
   for (const record of records) {
     const at2 = timestamp(record.timestamp);
@@ -24894,15 +24912,40 @@ function codexTurns(records, path2 = "session.jsonl") {
       if (typeof payload?.reasoning_effort === "string")
         effort = payload.reasoning_effort;
     }
+    if (type === "item_completed" && pending !== undefined) {
+      const item = payload?.item;
+      const tool = item && CODEX_TOOL_NAME[item.type];
+      const s = payload?.started_at_ms;
+      const e = payload?.completed_at_ms;
+      if (tool && typeof s === "number" && typeof e === "number") {
+        tools.push({
+          tool,
+          start: s,
+          ms: Math.max(0, e - s),
+          id: `${item?.id ?? pending}-${tools.length}`
+        });
+      }
+      continue;
+    }
     if (!at2)
       continue;
     if (type === "task_started" || type === "turn_started") {
       pending = at2;
+      tools = [];
       continue;
     }
     if ((type === "task_complete" || type === "turn_complete") && pending !== undefined && at2 >= pending) {
-      turns.push({ agent: "codex", session, start: pending, stop: at2, model, effort });
+      turns.push({
+        agent: "codex",
+        session,
+        start: pending,
+        stop: at2,
+        model,
+        effort,
+        tools: tools.length ? tools : undefined
+      });
       pending = undefined;
+      tools = [];
     }
   }
   return turns;
@@ -24914,18 +24957,49 @@ function isToolResult(record) {
 function claudeTurns(records, path2 = "session.jsonl") {
   const session = sessionFrom(records, path2);
   let pending;
+  let tools = [];
+  const openTools = new Map;
   const turns = [];
+  const reset = () => {
+    tools = [];
+    openTools.clear();
+  };
   for (const record of records) {
     if (record.isSidechain)
       continue;
     const at2 = timestamp(record.timestamp);
     if (!at2)
       continue;
-    if (record.type === "user" && !record.isMeta && !isToolResult(record)) {
+    const message = record.message;
+    const content = message?.content;
+    if (record.type === "assistant" && Array.isArray(content)) {
+      for (const part of content)
+        if (part?.type === "tool_use" && part.id)
+          openTools.set(part.id, {
+            name: typeof part.name === "string" ? part.name : "unknown",
+            start: at2
+          });
+    }
+    if (record.type === "user" && !record.isMeta) {
+      if (isToolResult(record)) {
+        for (const part of content) {
+          const open = part?.tool_use_id && openTools.get(part.tool_use_id);
+          if (open) {
+            tools.push({
+              tool: open.name,
+              start: open.start,
+              ms: Math.max(0, at2 - open.start),
+              id: part.tool_use_id
+            });
+            openTools.delete(part.tool_use_id);
+          }
+        }
+        continue;
+      }
       pending = at2;
+      reset();
       continue;
     }
-    const message = record.message;
     if (record.type !== "assistant" || message?.stop_reason !== "end_turn" || pending === undefined)
       continue;
     if (at2 >= pending) {
@@ -24935,10 +25009,12 @@ function claudeTurns(records, path2 = "session.jsonl") {
         start: pending,
         stop: at2,
         model: typeof message.model === "string" ? message.model : undefined,
-        effort: typeof record.effort === "string" ? record.effort : undefined
+        effort: typeof record.effort === "string" ? record.effort : undefined,
+        tools: tools.length ? tools : undefined
       });
     }
     pending = undefined;
+    reset();
   }
   return turns;
 }
@@ -24958,7 +25034,7 @@ function matchesInterval(turn, interval) {
   return turn.agent === interval.agent && Math.abs(turn.start - interval.start) <= MATCH_TOLERANCE_MS && Math.abs(turn.stop - (interval.start + interval.ms)) <= MATCH_TOLERANCE_MS;
 }
 function eventsFor(turn) {
-  return [
+  const events = [
     { ts: turn.start, kind: "start", agent: turn.agent, session: turn.session, source: "history" },
     {
       ts: turn.stop,
@@ -24970,6 +25046,27 @@ function eventsFor(turn) {
       source: "history"
     }
   ];
+  for (const t of turn.tools ?? []) {
+    events.push({
+      ts: t.start,
+      kind: "tool_start",
+      agent: turn.agent,
+      session: turn.session,
+      tool: t.tool,
+      toolId: t.id,
+      source: "history"
+    });
+    events.push({
+      ts: t.start + t.ms,
+      kind: "tool_end",
+      agent: turn.agent,
+      session: turn.session,
+      tool: t.tool,
+      toolId: t.id,
+      source: "history"
+    });
+  }
+  return events;
 }
 function syncHistory(dbPath2, home = homedir4()) {
   const scan = scanHistory(home);
@@ -24997,10 +25094,14 @@ function syncHistory(dbPath2, home = homedir4()) {
     importedMs: imported.reduce((total, turn) => total + turn.stop - turn.start, 0)
   };
 }
-var MATCH_TOLERANCE_MS = 5000;
+var MATCH_TOLERANCE_MS = 5000, CODEX_TOOL_NAME;
 var init_history = __esm(() => {
   init_db();
   init_events();
+  CODEX_TOOL_NAME = {
+    CommandExecution: "shell",
+    FileChange: "apply_patch"
+  };
 });
 
 // src/release.ts

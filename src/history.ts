@@ -4,6 +4,8 @@ import { basename, join } from "node:path";
 import { allEvents, historyResetAt, insertEvents } from "./db.ts";
 import { pairIntervals, type Event, type Interval } from "./events.ts";
 
+export type HistoryToolCall = { tool: string; start: number; ms: number; id: string };
+
 export type HistoryTurn = {
   agent: "claude-code" | "codex";
   session: string;
@@ -11,6 +13,7 @@ export type HistoryTurn = {
   stop: number;
   model?: string;
   effort?: string;
+  tools?: HistoryToolCall[]; // tool calls within the turn (omitted when none)
 };
 
 export type HistoryScan = {
@@ -88,12 +91,20 @@ function sessionFrom(records: HistoryRecord[], path: string): string {
   return basename(path, ".jsonl");
 }
 
-/** Parse completed Codex turns from a persisted rollout JSONL file. */
+// Codex `item_completed` item types that are tool calls, mapped to a tool name
+// whose category (see toolAction) is meaningful: shell → run, patch → edit.
+const CODEX_TOOL_NAME: Record<string, string> = {
+  CommandExecution: "shell",
+  FileChange: "apply_patch",
+};
+
+/** Parse completed Codex turns (with their tool calls) from a rollout JSONL file. */
 export function codexTurns(records: HistoryRecord[], path = "session.jsonl"): HistoryTurn[] {
   const session = sessionFrom(records, path);
   let pending: number | undefined;
   let model: string | undefined;
   let effort: string | undefined;
+  let tools: HistoryToolCall[] = [];
   const turns: HistoryTurn[] = [];
 
   for (const record of records) {
@@ -105,9 +116,26 @@ export function codexTurns(records: HistoryRecord[], path = "session.jsonl"): Hi
       if (typeof payload?.effort === "string") effort = payload.effort;
       if (typeof payload?.reasoning_effort === "string") effort = payload.reasoning_effort;
     }
+    // Tool calls carry their own start/stop (started_at_ms/completed_at_ms).
+    if (type === "item_completed" && pending !== undefined) {
+      const item = payload?.item as HistoryRecord | undefined;
+      const tool = item && CODEX_TOOL_NAME[item.type as string];
+      const s = payload?.started_at_ms;
+      const e = payload?.completed_at_ms;
+      if (tool && typeof s === "number" && typeof e === "number") {
+        tools.push({
+          tool,
+          start: s,
+          ms: Math.max(0, e - s),
+          id: `${item?.id ?? pending}-${tools.length}`,
+        });
+      }
+      continue;
+    }
     if (!at) continue;
     if (type === "task_started" || type === "turn_started") {
       pending = at;
+      tools = [];
       continue;
     }
     if (
@@ -115,8 +143,17 @@ export function codexTurns(records: HistoryRecord[], path = "session.jsonl"): Hi
       pending !== undefined &&
       at >= pending
     ) {
-      turns.push({ agent: "codex", session, start: pending, stop: at, model, effort });
+      turns.push({
+        agent: "codex",
+        session,
+        start: pending,
+        stop: at,
+        model,
+        effort,
+        tools: tools.length ? tools : undefined,
+      });
       pending = undefined;
+      tools = [];
     }
   }
   return turns;
@@ -135,7 +172,13 @@ function isToolResult(record: HistoryRecord): boolean {
 export function claudeTurns(records: HistoryRecord[], path = "session.jsonl"): HistoryTurn[] {
   const session = sessionFrom(records, path);
   let pending: number | undefined;
+  let tools: HistoryToolCall[] = [];
+  const openTools = new Map<string, { name: string; start: number }>(); // tool_use_id → start
   const turns: HistoryTurn[] = [];
+  const reset = () => {
+    tools = [];
+    openTools.clear();
+  };
 
   for (const record of records) {
     // Claude persists child agents in sidechain transcripts. Their records
@@ -144,15 +187,41 @@ export function claudeTurns(records: HistoryRecord[], path = "session.jsonl"): H
     if (record.isSidechain) continue;
     const at = timestamp(record.timestamp);
     if (!at) continue;
-    // Claude persists system reminders, slash-command bookkeeping, and other
-    // harness messages as `user` records. They can arrive while a real turn is
-    // running, so treating them as a new prompt would replace the real start
-    // time and undercount the wait.
-    if (record.type === "user" && !record.isMeta && !isToolResult(record)) {
+    const message = record.message as HistoryRecord | undefined;
+    const content = message?.content;
+
+    // Tool calls: `tool_use` in an assistant record opens; the matching
+    // `tool_result` (a user record) closes. Pair by tool_use_id.
+    if (record.type === "assistant" && Array.isArray(content)) {
+      for (const part of content)
+        if (part?.type === "tool_use" && part.id)
+          openTools.set(part.id, {
+            name: typeof part.name === "string" ? part.name : "unknown",
+            start: at,
+          });
+    }
+    if (record.type === "user" && !record.isMeta) {
+      if (isToolResult(record)) {
+        for (const part of content as HistoryRecord[]) {
+          const open = part?.tool_use_id && openTools.get(part.tool_use_id);
+          if (open) {
+            tools.push({
+              tool: open.name,
+              start: open.start,
+              ms: Math.max(0, at - open.start),
+              id: part.tool_use_id,
+            });
+            openTools.delete(part.tool_use_id);
+          }
+        }
+        continue;
+      }
+      // A real prompt (not a system-reminder/slash-command meta record) starts a
+      // new turn — replacing the pending start would otherwise undercount.
       pending = at;
+      reset();
       continue;
     }
-    const message = record.message as HistoryRecord | undefined;
     if (record.type !== "assistant" || message?.stop_reason !== "end_turn" || pending === undefined)
       continue;
     if (at >= pending) {
@@ -165,9 +234,11 @@ export function claudeTurns(records: HistoryRecord[], path = "session.jsonl"): H
         // Claude records reasoning effort at the top level of the assistant
         // record (same field the live Stop hook reads from the transcript).
         effort: typeof record.effort === "string" ? record.effort : undefined,
+        tools: tools.length ? tools : undefined,
       });
     }
     pending = undefined;
+    reset();
   }
   return turns;
 }
@@ -195,7 +266,7 @@ function matchesInterval(turn: HistoryTurn, interval: Interval): boolean {
 }
 
 function eventsFor(turn: HistoryTurn): Event[] {
-  return [
+  const events: Event[] = [
     { ts: turn.start, kind: "start", agent: turn.agent, session: turn.session, source: "history" },
     {
       ts: turn.stop,
@@ -207,6 +278,29 @@ function eventsFor(turn: HistoryTurn): Event[] {
       source: "history",
     },
   ];
+  // Tool calls ride with the turn, so they inherit its dedup: a turn that's
+  // already imported is skipped whole, tools included.
+  for (const t of turn.tools ?? []) {
+    events.push({
+      ts: t.start,
+      kind: "tool_start",
+      agent: turn.agent,
+      session: turn.session,
+      tool: t.tool,
+      toolId: t.id,
+      source: "history",
+    });
+    events.push({
+      ts: t.start + t.ms,
+      kind: "tool_end",
+      agent: turn.agent,
+      session: turn.session,
+      tool: t.tool,
+      toolId: t.id,
+      source: "history",
+    });
+  }
+  return events;
 }
 
 /**

@@ -1,7 +1,7 @@
 import { Box, render, Text, useApp, useInput } from "ink";
 import React, { useEffect, useState } from "react";
 import { allEvents, resetEvents } from "./db.ts";
-import { fmtDuration } from "./events.ts";
+import { fmtDate, fmtDuration } from "./events.ts";
 import { share } from "./share.ts";
 import { computeStats, type Stats } from "./stats.ts";
 
@@ -53,8 +53,11 @@ function App() {
   const max = Math.max(1, ...stats.byAgent.map((a) => a.ms));
   return (
     <Box flexDirection="column" paddingX={1} paddingY={1}>
-      <Text color={ORANGE} bold>
-        ⏱ clocked-in
+      <Text>
+        <Text color={ORANGE} bold>
+          ⏱ clocked-in
+        </Text>
+        {stats.sinceMs && <Text dimColor>{`   since ${fmtDate(stats.sinceMs)}`}</Text>}
       </Text>
       <Box marginTop={1} flexDirection="column">
         <Text>

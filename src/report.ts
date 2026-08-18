@@ -1,4 +1,4 @@
-import { fmtDuration, type Event } from "./events.ts";
+import { fmtDate, fmtDuration, type Event } from "./events.ts";
 import { computeStats } from "./stats.ts";
 
 export function report(events: Event[], opts: { days?: number; now?: number } = {}): string {
@@ -6,7 +6,12 @@ export function report(events: Event[], opts: { days?: number; now?: number } = 
   if (!s.turns)
     return "clocked-in: no waiting recorded yet. Install hooks (clocked-in install --all) and run some agent turns.";
 
-  const scope = opts.days ? `last ${opts.days}d` : "all time";
+  const scope =
+    s.sinceMs && !opts.days
+      ? `since ${fmtDate(s.sinceMs)}`
+      : opts.days
+        ? `last ${opts.days}d`
+        : "all time";
   const overlap = s.totalMs - s.humanWaitMs;
   const lines = [
     `⏱  clocked-in — time you spent waiting on coding agents (${scope})`,

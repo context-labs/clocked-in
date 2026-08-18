@@ -9,6 +9,7 @@ export type Stats = {
   humanWaitMs: number; // overlap-adjusted: how long a person actually sat waiting
   todayMs: number;
   turns: number;
+  sinceMs: number | null; // earliest recorded turn (start of the measured range)
   longest: Interval | null;
   byAgent: { agent: string; ms: number; turns: number }[]; // sorted desc by ms
   byModel: ModelRow[]; // per harness → model → effort, sorted desc by ms
@@ -28,10 +29,12 @@ export function computeStats(events: Event[], opts: { days?: number; now?: numbe
   const models = new Map<string, ModelRow>();
   let totalMs = 0;
   let todayMs = 0;
+  let sinceMs: number | null = null;
   let longest: Interval | null = null;
   for (const i of intervals) {
     totalMs += i.ms;
     if (i.start >= startOfToday) todayMs += i.ms;
+    if (sinceMs === null || i.start < sinceMs) sinceMs = i.start;
     if (!longest || i.ms > longest.ms) longest = i;
     const g = agents.get(i.agent) ?? { ms: 0, turns: 0 };
     g.ms += i.ms;
@@ -66,6 +69,7 @@ export function computeStats(events: Event[], opts: { days?: number; now?: numbe
     humanWaitMs: unionMs(intervals),
     todayMs,
     turns: intervals.length,
+    sinceMs,
     longest,
     byAgent: [...agents].map(([agent, g]) => ({ agent, ...g })).sort((a, b) => b.ms - a.ms),
     byModel: [...models.values()].sort((a, b) => b.ms - a.ms),

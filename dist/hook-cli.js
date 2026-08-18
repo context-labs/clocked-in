@@ -145,6 +145,10 @@ function unionMs(intervals) {
     total += curEnd - curStart;
   return total;
 }
+function fmtDate(ms) {
+  const d = new Date(ms);
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+}
 function fmtDuration(ms) {
   const s = Math.round(ms / 1000);
   if (s < 60)
@@ -158,7 +162,7 @@ function fmtDuration(ms) {
   const d = Math.floor(h / 24);
   return `${d}d ${h % 24}h`;
 }
-var AGENTS, KIND;
+var AGENTS, KIND, MONTHS;
 var init_events = __esm(() => {
   AGENTS = ["claude-code", "codex", "grok", "cursor", "opencode", "pi"];
   KIND = {
@@ -167,6 +171,7 @@ var init_events = __esm(() => {
     tool_start: "tool_start",
     tool_end: "tool_end"
   };
+  MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 });
 
 // src/db.ts
