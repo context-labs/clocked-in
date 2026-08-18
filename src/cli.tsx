@@ -62,6 +62,16 @@ program
   .action((opts) => console.log(report(allEvents(), { days: opts.days })));
 
 program
+  .command("start")
+  .description("Live session view — totals shown only from now on (all data is still recorded)")
+  .action(async () => {
+    const since = Date.now();
+    if (!process.stdout.isTTY) return console.log(report(allEvents(), { since }));
+    const { runTui } = await import("./tui.tsx");
+    runTui({ since });
+  });
+
+program
   .command("history")
   .description("Backfill completed turns from saved Codex & Claude Code history (opt-in, one-off)")
   .action(async () => {

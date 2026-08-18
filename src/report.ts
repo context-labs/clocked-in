@@ -1,13 +1,19 @@
 import { fmtDate, fmtDuration, type Event } from "./events.ts";
 import { computeStats } from "./stats.ts";
 
-export function report(events: Event[], opts: { days?: number; now?: number } = {}): string {
+export function report(
+  events: Event[],
+  opts: { days?: number; now?: number; since?: number } = {},
+): string {
   const s = computeStats(events, opts);
   if (!s.turns)
-    return "clocked-in: no waiting recorded yet. Install hooks (clocked-in install --all) and run some agent turns.";
+    return opts.since
+      ? "clocked-in: nothing recorded this session yet."
+      : "clocked-in: no waiting recorded yet. Install hooks (clocked-in install --all) and run some agent turns.";
 
-  const scope =
-    s.sinceMs && !opts.days
+  const scope = opts.since
+    ? "this session"
+    : s.sinceMs && !opts.days
       ? `since ${fmtDate(s.sinceMs)}`
       : opts.days
         ? `last ${opts.days}d`

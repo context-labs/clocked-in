@@ -50,14 +50,20 @@ function Heat({ stats, now }: { stats: Stats; now: number }) {
   );
 }
 
-function App() {
+const clock = (ms: number) => {
+  const d = new Date(ms);
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
+
+function App({ since }: { since?: number }) {
   const { exit } = useApp();
-  const [stats, setStats] = useState<Stats>(() => computeStats(allEvents()));
+  const opts = since === undefined ? {} : { since };
+  const [stats, setStats] = useState<Stats>(() => computeStats(allEvents(), opts));
   const [note, setNote] = useState("");
   const [confirmReset, setConfirmReset] = useState(false);
 
   useEffect(() => {
-    const t = setInterval(() => setStats(computeStats(allEvents())), 1000);
+    const t = setInterval(() => setStats(computeStats(allEvents(), opts)), 1000);
     return () => clearInterval(t);
   }, []);
 
@@ -93,7 +99,11 @@ function App() {
         <Text color={ORANGE} bold>
           ⏱ clocked-in
         </Text>
-        {stats.sinceMs && <Text dimColor>{`   since ${fmtDate(stats.sinceMs)}`}</Text>}
+        {since !== undefined ? (
+          <Text dimColor>{`   this session · started ${clock(since)}`}</Text>
+        ) : (
+          stats.sinceMs && <Text dimColor>{`   since ${fmtDate(stats.sinceMs)}`}</Text>
+        )}
       </Text>
       <Box marginTop={1} flexDirection="column">
         <Text>
@@ -119,7 +129,7 @@ function App() {
         )}
       </Box>
 
-      <Heat stats={stats} now={Date.now()} />
+      {since === undefined && <Heat stats={stats} now={Date.now()} />}
 
       <Box marginTop={1} flexDirection="column">
         {stats.byAgent.length === 0 ? (
@@ -138,7 +148,7 @@ function App() {
       {stats.byModel.length > 0 && (
         <Box marginTop={1} flexDirection="column">
           <Text dimColor>by model · effort</Text>
-          {stats.byModel.slice(0, 6).map((m) => (
+          {stats.byModel.map((m) => (
             <Text key={`${m.agent}/${m.model}/${m.effort}`}>
               <Text dimColor>{`${m.model} · ${m.effort}`.padEnd(30)}</Text>
               <Text color={ORANGE}>{fmtDuration(m.ms).padStart(9)}</Text>
@@ -151,7 +161,7 @@ function App() {
       {stats.byAction.length > 0 && (
         <Box marginTop={1} flexDirection="column">
           <Text dimColor>by action</Text>
-          {stats.byAction.slice(0, 6).map((a) => (
+          {stats.byAction.map((a) => (
             <Text key={a.action}>
               <Text dimColor>{a.action.padEnd(13)}</Text>
               <Text color={ORANGE}>{fmtDuration(a.ms).padStart(9)}</Text>
@@ -174,6 +184,6 @@ function App() {
   );
 }
 
-export function runTui(): void {
-  render(<App />);
+export function runTui(opts: { since?: number } = {}): void {
+  render(<App since={opts.since} />);
 }

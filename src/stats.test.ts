@@ -59,3 +59,16 @@ test("byTool and byAction aggregate tool intervals", () => {
     count: 1,
   });
 });
+
+test("since cutoff (clocked-in start) shows only turns from the session onward", () => {
+  const events: Event[] = [
+    { ts: 1000, kind: "start", agent: "claude-code", session: "old" },
+    { ts: 5000, kind: "stop", agent: "claude-code", session: "old" }, // before session
+    { ts: 20000, kind: "start", agent: "codex", session: "new" },
+    { ts: 26000, kind: "stop", agent: "codex", session: "new" }, // after session start (10000)
+  ];
+  const s = computeStats(events, { since: 10000, now: 30000 });
+  expect(s.turns).toBe(1);
+  expect(s.totalMs).toBe(6000);
+  expect(s.byAgent).toEqual([{ agent: "codex", ms: 6000, turns: 1 }]);
+});

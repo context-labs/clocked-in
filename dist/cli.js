@@ -2393,7 +2393,7 @@ var init_commander = __esm(() => {
 // src/stats.ts
 function computeStats(events, opts = {}) {
   const now = opts.now ?? Date.now();
-  const cutoff = opts.days ? now - opts.days * DAY_MS : 0;
+  const cutoff = opts.since ?? (opts.days ? now - opts.days * DAY_MS : 0);
   const startOfToday = new Date(now).setHours(0, 0, 0, 0);
   const intervals = pairIntervals(events).filter((i) => i.start >= cutoff);
   const agents = new Map;
@@ -2464,8 +2464,8 @@ __export(exports_report, {
 function report(events, opts = {}) {
   const s = computeStats(events, opts);
   if (!s.turns)
-    return "clocked-in: no waiting recorded yet. Install hooks (clocked-in install --all) and run some agent turns.";
-  const scope = s.sinceMs && !opts.days ? `since ${fmtDate(s.sinceMs)}` : opts.days ? `last ${opts.days}d` : "all time";
+    return opts.since ? "clocked-in: nothing recorded this session yet." : "clocked-in: no waiting recorded yet. Install hooks (clocked-in install --all) and run some agent turns.";
+  const scope = opts.since ? "this session" : s.sinceMs && !opts.days ? `since ${fmtDate(s.sinceMs)}` : opts.days ? `last ${opts.days}d` : "all time";
   const overlap = s.totalMs - s.humanWaitMs;
   const lines = [
     `\u23F1  clocked-in \u2014 time you spent waiting on coding agents (${scope})`,
@@ -25151,13 +25151,14 @@ function Heat({ stats, now: now2 }) {
     ]
   }, undefined, true, undefined, this);
 }
-function App2() {
+function App2({ since }) {
   const { exit } = use_app_default();
-  const [stats, setStats] = import_react34.useState(() => computeStats(allEvents()));
+  const opts = since === undefined ? {} : { since };
+  const [stats, setStats] = import_react34.useState(() => computeStats(allEvents(), opts));
   const [note, setNote] = import_react34.useState("");
   const [confirmReset, setConfirmReset] = import_react34.useState(false);
   import_react34.useEffect(() => {
-    const t = setInterval(() => setStats(computeStats(allEvents())), 1000);
+    const t = setInterval(() => setStats(computeStats(allEvents(), opts)), 1000);
     return () => clearInterval(t);
   }, []);
   use_input_default((input) => {
@@ -25195,7 +25196,10 @@ function App2() {
             bold: true,
             children: "\u23F1 clocked-in"
           }, undefined, false, undefined, this),
-          stats.sinceMs && /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
+          since !== undefined ? /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
+            dimColor: true,
+            children: `   this session \xB7 started ${clock(since)}`
+          }, undefined, false, undefined, this) : stats.sinceMs && /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
             dimColor: true,
             children: `   since ${fmtDate(stats.sinceMs)}`
           }, undefined, false, undefined, this)
@@ -25260,7 +25264,7 @@ function App2() {
           }, undefined, true, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Heat, {
+      since === undefined && /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Heat, {
         stats,
         now: Date.now()
       }, undefined, false, undefined, this),
@@ -25301,7 +25305,7 @@ function App2() {
             dimColor: true,
             children: "by model \xB7 effort"
           }, undefined, false, undefined, this),
-          stats.byModel.slice(0, 6).map((m) => /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
+          stats.byModel.map((m) => /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
             children: [
               /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
                 dimColor: true,
@@ -25327,7 +25331,7 @@ function App2() {
             dimColor: true,
             children: "by action"
           }, undefined, false, undefined, this),
-          stats.byAction.slice(0, 6).map((a) => /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
+          stats.byAction.map((a) => /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
             children: [
               /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
                 dimColor: true,
@@ -25361,10 +25365,15 @@ function App2() {
     ]
   }, undefined, true, undefined, this);
 }
-function runTui() {
-  render_default(/* @__PURE__ */ jsx_dev_runtime.jsxDEV(App2, {}, undefined, false, undefined, this));
+function runTui(opts = {}) {
+  render_default(/* @__PURE__ */ jsx_dev_runtime.jsxDEV(App2, {
+    since: opts.since
+  }, undefined, false, undefined, this));
 }
-var import_react34, jsx_dev_runtime, ORANGE = "#f97316", WEEK, HEAT, DOW, level = (ms, max2) => ms <= 0 || max2 <= 0 ? 0 : Math.min(4, Math.ceil(ms / max2 * 4));
+var import_react34, jsx_dev_runtime, ORANGE = "#f97316", WEEK, HEAT, DOW, level = (ms, max2) => ms <= 0 || max2 <= 0 ? 0 : Math.min(4, Math.ceil(ms / max2 * 4)), clock = (ms) => {
+  const d = new Date(ms);
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
 var init_tui = __esm(async () => {
   init_db();
   init_events();
@@ -25895,6 +25904,13 @@ program2.action(async () => {
   runTui2();
 });
 program2.command("report").description("Print a text summary of time spent waiting").option("-d, --days <n>", "only the last N days", (v) => Number(v)).action((opts) => console.log(report2(allEvents2(), { days: opts.days })));
+program2.command("start").description("Live session view \u2014 totals shown only from now on (all data is still recorded)").action(async () => {
+  const since = Date.now();
+  if (!process.stdout.isTTY)
+    return console.log(report2(allEvents2(), { since }));
+  const { runTui: runTui2 } = await init_tui().then(() => exports_tui);
+  runTui2({ since });
+});
 program2.command("history").description("Backfill completed turns from saved Codex & Claude Code history (opt-in, one-off)").action(async () => {
   const { syncHistory: syncHistory2 } = await Promise.resolve().then(() => (init_history(), exports_history));
   const r = syncHistory2();

@@ -20,9 +20,14 @@ export type Stats = {
 
 const DAY_MS = 86_400_000;
 
-export function computeStats(events: Event[], opts: { days?: number; now?: number } = {}): Stats {
+export function computeStats(
+  events: Event[],
+  opts: { days?: number; now?: number; since?: number } = {},
+): Stats {
   const now = opts.now ?? Date.now();
-  const cutoff = opts.days ? now - opts.days * DAY_MS : 0;
+  // `since` (absolute) wins — used by `clocked-in start` to show only this
+  // session; else a rolling `--days` window; else everything.
+  const cutoff = opts.since ?? (opts.days ? now - opts.days * DAY_MS : 0);
   const startOfToday = new Date(now).setHours(0, 0, 0, 0);
   const intervals = pairIntervals(events).filter((i) => i.start >= cutoff);
 
