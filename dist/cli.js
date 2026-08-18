@@ -75,6 +75,10 @@ function db(path2 = dbPath()) {
     effort TEXT,
     source TEXT NOT NULL DEFAULT 'hook'
   );`);
+  d.exec(`CREATE TABLE IF NOT EXISTS metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );`);
   d.exec("CREATE INDEX IF NOT EXISTS idx_events_session ON events(session, ts);");
   for (const definition of ["model TEXT", "effort TEXT", "source TEXT NOT NULL DEFAULT 'hook'"]) {
     try {
@@ -101,10 +105,20 @@ function insertEvents(events, path2 = dbPath()) {
 function allEvents(path2 = dbPath()) {
   return db(path2).query("SELECT ts, kind, agent, session, cwd, model, effort, source FROM events ORDER BY ts").all();
 }
-function resetEvents(path2 = dbPath()) {
-  db(path2).exec("DELETE FROM events;");
+function historyResetAt(path2 = dbPath()) {
+  const row = db(path2).query("SELECT value FROM metadata WHERE key = ?").get(HISTORY_RESET_KEY);
+  const at = Number(row?.value);
+  return Number.isFinite(at) ? at : 0;
 }
-var cache;
+function resetEvents(path2 = dbPath(), resetAt = Date.now()) {
+  const d = db(path2);
+  const saveReset = d.query("INSERT INTO metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value");
+  d.transaction(() => {
+    d.exec("DELETE FROM events;");
+    saveReset.run(HISTORY_RESET_KEY, String(resetAt));
+  })();
+}
+var cache, HISTORY_RESET_KEY = "history_reset_at";
 var init_db = __esm(() => {
   cache = new Map;
 });
@@ -24415,10 +24429,12 @@ function claudeTurns(records, path2 = "session.jsonl") {
   let pending;
   const turns = [];
   for (const record of records) {
+    if (record.isSidechain)
+      continue;
     const at = timestamp(record.timestamp);
     if (!at)
       continue;
-    if (record.type === "user" && !isToolResult(record)) {
+    if (record.type === "user" && !record.isMeta && !isToolResult(record)) {
       pending = at;
       continue;
     }
@@ -24470,9 +24486,10 @@ function eventsFor(turn) {
 function syncHistory(dbPath2, home = homedir2()) {
   const scan = scanHistory(home);
   const known = pairIntervals(allEvents(dbPath2));
+  const resetAt = historyResetAt(dbPath2);
   const imported = [];
   for (const turn of scan.turns) {
-    if (turn.stop < turn.start || known.some((interval) => matchesInterval(turn, interval)))
+    if (turn.stop < turn.start || turn.start < resetAt || known.some((interval) => matchesInterval(turn, interval)))
       continue;
     imported.push(turn);
     known.push({

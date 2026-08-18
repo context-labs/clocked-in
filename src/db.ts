@@ -9,6 +9,7 @@ export function dbPath(): string {
 }
 
 const cache = new Map<string, Database>();
+const HISTORY_RESET_KEY = "history_reset_at";
 
 export function db(path = dbPath()): Database {
   const hit = cache.get(path);
@@ -28,6 +29,10 @@ export function db(path = dbPath()): Database {
     model TEXT,
     effort TEXT,
     source TEXT NOT NULL DEFAULT 'hook'
+  );`);
+  d.exec(`CREATE TABLE IF NOT EXISTS metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
   );`);
   d.exec("CREATE INDEX IF NOT EXISTS idx_events_session ON events(session, ts);");
   // Migrate DBs created before model/effort/history-source existed.
@@ -87,6 +92,22 @@ export function allEvents(path = dbPath()): Event[] {
     .all() as Event[];
 }
 
-export function resetEvents(path = dbPath()): void {
-  db(path).exec("DELETE FROM events;");
+/** The earliest turn that may be restored from durable agent history. */
+export function historyResetAt(path = dbPath()): number {
+  const row = db(path).query("SELECT value FROM metadata WHERE key = ?").get(HISTORY_RESET_KEY) as {
+    value: string;
+  } | null;
+  const at = Number(row?.value);
+  return Number.isFinite(at) ? at : 0;
+}
+
+export function resetEvents(path = dbPath(), resetAt = Date.now()): void {
+  const d = db(path);
+  const saveReset = d.query(
+    "INSERT INTO metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  );
+  d.transaction(() => {
+    d.exec("DELETE FROM events;");
+    saveReset.run(HISTORY_RESET_KEY, String(resetAt));
+  })();
 }

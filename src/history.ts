@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, type Dirent } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import { allEvents, insertEvents } from "./db.ts";
+import { allEvents, historyResetAt, insertEvents } from "./db.ts";
 import { pairIntervals, type Event, type Interval } from "./events.ts";
 
 export type HistoryTurn = {
@@ -138,9 +138,17 @@ export function claudeTurns(records: HistoryRecord[], path = "session.jsonl"): H
   const turns: HistoryTurn[] = [];
 
   for (const record of records) {
+    // Claude persists child agents in sidechain transcripts. Their records
+    // reuse the parent session ID, so importing them would mis-pair parent
+    // events and count the same wall-clock wait more than once.
+    if (record.isSidechain) continue;
     const at = timestamp(record.timestamp);
     if (!at) continue;
-    if (record.type === "user" && !isToolResult(record)) {
+    // Claude persists system reminders, slash-command bookkeeping, and other
+    // harness messages as `user` records. They can arrive while a real turn is
+    // running, so treating them as a new prompt would replace the real start
+    // time and undercount the wait.
+    if (record.type === "user" && !record.isMeta && !isToolResult(record)) {
       pending = at;
       continue;
     }
@@ -205,9 +213,14 @@ function eventsFor(turn: HistoryTurn): Event[] {
 export function syncHistory(dbPath?: string, home = homedir()): HistorySync {
   const scan = scanHistory(home);
   const known = pairIntervals(allEvents(dbPath));
+  const resetAt = historyResetAt(dbPath);
   const imported: HistoryTurn[] = [];
   for (const turn of scan.turns) {
-    if (turn.stop < turn.start || known.some((interval) => matchesInterval(turn, interval)))
+    if (
+      turn.stop < turn.start ||
+      turn.start < resetAt ||
+      known.some((interval) => matchesInterval(turn, interval))
+    )
       continue;
     imported.push(turn);
     known.push({

@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { allEvents } from "./db.ts";
+import { allEvents, resetEvents } from "./db.ts";
 import { claudeTurns, codexTurns, scanHistory, syncHistory } from "./history.ts";
 
 const root = join(tmpdir(), `clocked-in-history-${process.pid}`);
@@ -65,6 +65,77 @@ test("Claude history ignores tool results and waits for end_turn", () => {
   ]);
 });
 
+test("Claude history does not replace a prompt with an in-turn meta message", () => {
+  const turns = claudeTurns([
+    {
+      type: "user",
+      sessionId: "claude-session",
+      timestamp: "2026-08-18T10:00:00.000Z",
+      message: { content: "fix it" },
+    },
+    {
+      type: "user",
+      isMeta: true,
+      timestamp: "2026-08-18T10:00:30.000Z",
+      message: { content: "<system-reminder>tool finished</system-reminder>" },
+    },
+    {
+      type: "assistant",
+      timestamp: "2026-08-18T10:01:00.000Z",
+      message: { stop_reason: "end_turn", model: "claude-sonnet" },
+    },
+  ]);
+  expect(turns).toEqual([
+    {
+      agent: "claude-code",
+      session: "claude-session",
+      start: 1_787_047_200_000,
+      stop: 1_787_047_260_000,
+      model: "claude-sonnet",
+    },
+  ]);
+});
+
+test("Claude history ignores sidechain records that share the parent session", () => {
+  const turns = claudeTurns([
+    {
+      type: "user",
+      sessionId: "parent-session",
+      timestamp: "2026-08-18T10:00:00.000Z",
+      message: { content: "fix it" },
+    },
+    {
+      type: "user",
+      isSidechain: true,
+      sessionId: "parent-session",
+      timestamp: "2026-08-18T10:00:05.000Z",
+      message: { content: "subagent task" },
+    },
+    {
+      type: "assistant",
+      isSidechain: true,
+      sessionId: "parent-session",
+      timestamp: "2026-08-18T10:00:30.000Z",
+      message: { stop_reason: "end_turn", model: "claude-haiku" },
+    },
+    {
+      type: "assistant",
+      sessionId: "parent-session",
+      timestamp: "2026-08-18T10:01:00.000Z",
+      message: { stop_reason: "end_turn", model: "claude-sonnet" },
+    },
+  ]);
+  expect(turns).toEqual([
+    {
+      agent: "claude-code",
+      session: "parent-session",
+      start: 1_787_047_200_000,
+      stop: 1_787_047_260_000,
+      model: "claude-sonnet",
+    },
+  ]);
+});
+
 test("history scan imports once and does not double-count a later sync", () => {
   const sessionDir = join(root, ".codex", "sessions", "2026", "08", "18");
   mkdirSync(sessionDir, { recursive: true });
@@ -100,6 +171,9 @@ test("history scan imports once and does not double-count a later sync", () => {
     { kind: "start", source: "history", ts: 1_787_047_200_000 },
     { kind: "stop", source: "history", ts: 1_787_047_380_000 },
   ]);
+  resetEvents(path, 1_787_047_380_001);
+  expect(syncHistory(path, root)).toMatchObject({ imported: 0, importedMs: 0 });
+  expect(allEvents(path)).toEqual([]);
 });
 
 test("history scan reads compressed Codex rollouts", () => {
