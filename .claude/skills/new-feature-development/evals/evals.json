@@ -1,0 +1,27 @@
+{
+  "skill_name": "new-feature-development",
+  "notes": "Workflow/planning skill — output is a clarify-then-plan artifact, not shipped code. Dry-run prompts ask the agent to plan (not implement) a net-new feature; graded on whether it clarifies ambiguity, grounds in product-source-of-truth, respects the service/transport/store + leaf-package architecture, picks infra deliberately, writes an .ai-docs plan, and plans observability + tests + adversarial review.",
+  "evals": [
+    {
+      "id": 0,
+      "name": "pin-default-eval-model",
+      "prompt": "We want teams to be able to pin a default eval target model per project, so that when someone kicks off an insights/analysis run for that project it uses the pinned model automatically instead of the catalog default. Build this.",
+      "expected_output": "Asks which planner to use (fable recommended, opus, or gpt-5.6-sol) rather than assuming fable. Clarifies the ambiguity (who sets it, precedence vs an explicit per-run model, what happens if the pinned model is later disabled). Plans it as a service method + store op (not logic in the router), a tRPC procedure delegating to the service, schema under routers/schemas/*, reads served through the cache where hot. Writes an .ai-docs/plans/<slug>/README.md. Plans implementation on grok 4.6 high/xhigh and gpt-5.6-terra at xhigh, not on a planner. Plans unit tests against a memory store, spans + child logger, task check, and adversarial review. Does NOT dump business logic into a router or start coding before a plan.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "training-job-finished-webhook",
+      "prompt": "Customers want to be notified when one of their training jobs finishes. Add a way for a customer-configured webhook URL to get called when a training job reaches a terminal state.",
+      "expected_output": "Clarifies (which terminal states, retry/delivery guarantees, security/signing, per-project vs per-team config). Reaches for RabbitMQ (defineChannel + publish-after-commit, idempotent consumer) rather than inline synchronous HTTP in the request path; payload schema in cf-compatible-models leaf. Business logic in a service, transport stays thin, observability on the consumer. Plans integration test for the queue path + unit tests, writes the .ai-docs plan, notes task check + adversarial review.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "project-error-rate-dashboard-page",
+      "prompt": "I want a new dashboard page under apps/web that shows per-project inference error rates over the last 7 days, with a simple time-series chart.",
+      "expected_output": "Clarifies (granularity, which error classes count, filters). Uses the analytics-policy leaf for time-range/granularity rather than hand-rolling buckets; a tRPC query delegating to a service/analytics read; router stays thin. Plans a web e2e (Playwright) test for the authenticated page ONLY for the end-to-end journey, with unit tests for the data/transform logic — and justifies that split rather than defaulting to e2e. Observability on the read path, .ai-docs plan, task check, adversarial review.",
+      "files": []
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+version: "3"
+
+tasks:
+  install:
+    desc: Install dependencies
+    cmds:
+      - bun install
+
+  dev:
+    desc: Run the CLI from source
+    cmds:
+      - bun src/cli.tsx {{.CLI_ARGS}}
+
+  fmt:
+    desc: Format + autofix lint
+    cmds:
+      - bunx oxfmt src
+      - bunx oxlint --fix
+
+  typecheck:
+    desc: Typecheck with tsgo (TypeScript 7 native)
+    cmds:
+      - bunx tsgo --noEmit
+
+  lint:
+    cmds:
+      - bunx oxlint
+
+  test:
+    cmds:
+      - bun test
+
+  check:
+    desc: The gate — typecheck + lint + format check + tests
+    cmds:
+      - bunx tsgo --noEmit
+      - bunx oxlint
+      - bunx oxfmt --check src
+      - bun test
