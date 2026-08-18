@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { computeStats } from "./stats.ts";
-import { renderCardPng, tweetText } from "./share.ts";
+import { renderCardPng, share, tweetText } from "./share.ts";
 import type { Event } from "./events.ts";
 
 const events: Event[] = [
@@ -21,4 +24,21 @@ test("renderCardPng returns a real PNG buffer", () => {
   const png = renderCardPng(computeStats(events));
   expect(png.length).toBeGreaterThan(1000);
   expect(png.subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])); // PNG magic
+});
+
+test("share tolerates missing opener and clipboard commands", async () => {
+  const path = process.env.PATH;
+  const out = join(tmpdir(), `clocked-in-share-${crypto.randomUUID()}.png`);
+  try {
+    process.env.PATH = "";
+    let result: ReturnType<typeof share> | undefined;
+    expect(() => {
+      result = share(events, { open: true, out });
+    }).not.toThrow();
+    expect(result?.url).toStartWith("https://twitter.com/intent/tweet");
+    await Bun.sleep(0);
+  } finally {
+    process.env.PATH = path;
+    rmSync(out, { force: true });
+  }
 });

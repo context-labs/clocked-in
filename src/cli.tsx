@@ -74,9 +74,9 @@ program
   .option("--no-open", "don't open X or copy to clipboard")
   .action((opts) => {
     try {
-      const { png, text } = share(allEvents(), { out: opts.out, open: opts.open });
-      console.log(`✓ image → ${png}\n\n${text}\n`);
-      if (opts.open) console.log("(tweet copied to clipboard, X opened)");
+      const { png, text, url } = share(allEvents(), { out: opts.out, open: opts.open });
+      console.log(`✓ image → ${png}\n\n${text}\n\nShare it: ${url}`);
+      if (opts.open) console.log("(attempted to copy tweet to clipboard and open X)");
     } catch (e) {
       console.error((e as Error).message);
       process.exit(1);

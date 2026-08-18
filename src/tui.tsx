@@ -31,7 +31,7 @@ function App() {
     } else if (input === "s") {
       try {
         const { png } = share(allEvents(), { open: true });
-        setNote(`shared → ${png} (tweet opened)`);
+        setNote(`saved → ${png}`);
       } catch (e) {
         setNote(String((e as Error).message));
       }

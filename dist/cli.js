@@ -246,17 +246,25 @@ function renderCardPng(stats) {
 }
 function openUrl(url) {
   const cmd2 = platform() === "darwin" ? "open" : platform() === "win32" ? "start" : "xdg-open";
-  spawn(cmd2, [url], { stdio: "ignore", detached: true, shell: platform() === "win32" }).unref();
+  try {
+    const p = spawn(cmd2, [url], { stdio: "ignore", detached: true, shell: platform() === "win32" });
+    p.on("error", () => {});
+    p.unref();
+  } catch {}
 }
 function copyToClipboard(text) {
   const cmd2 = platform() === "darwin" ? ["pbcopy"] : platform() === "win32" ? ["clip"] : process.env.WAYLAND_DISPLAY ? ["wl-copy"] : ["xclip", "-selection", "clipboard"];
   try {
     const p = spawn(cmd2[0], cmd2.slice(1), { stdio: ["pipe", "ignore", "ignore"] });
+    p.on("error", () => {});
     p.stdin.end(text);
     return true;
   } catch {
     return false;
   }
+}
+function tweetUrl(text) {
+  return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
 }
 function share(events, opts = {}) {
   const stats = computeStats(events);
@@ -264,12 +272,13 @@ function share(events, opts = {}) {
     throw new Error("Nothing to share yet \u2014 no waiting recorded.");
   const out = opts.out ?? join3(homedir3(), ".clocked-in", "share.png");
   const text = tweetText(stats);
+  const url = tweetUrl(text);
   writeFileSync2(out, renderCardPng(stats));
   if (opts.open) {
     copyToClipboard(text);
-    openUrl(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`);
+    openUrl(url);
   }
-  return { png: out, text };
+  return { png: out, text, url };
 }
 var FONT_FILE;
 var init_share = __esm(() => {
@@ -22029,7 +22038,7 @@ function App2() {
     } else if (input === "s") {
       try {
         const { png } = share(allEvents(), { open: true });
-        setNote(`shared \u2192 ${png} (tweet opened)`);
+        setNote(`saved \u2192 ${png}`);
       } catch (e) {
         setNote(String(e.message));
       }
@@ -24559,13 +24568,14 @@ program2.command("hook <kind>").description("(internal) record a start/stop even
 });
 program2.command("share").description("Generate a share image + draft a tweet").option("-o, --out <path>", "output PNG path").option("--no-open", "don't open X or copy to clipboard").action((opts) => {
   try {
-    const { png, text } = share(allEvents(), { out: opts.out, open: opts.open });
+    const { png, text, url } = share(allEvents(), { out: opts.out, open: opts.open });
     console.log(`\u2713 image \u2192 ${png}
 
 ${text}
-`);
+
+Share it: ${url}`);
     if (opts.open)
-      console.log("(tweet copied to clipboard, X opened)");
+      console.log("(attempted to copy tweet to clipboard and open X)");
   } catch (e) {
     console.error(e.message);
     process.exit(1);

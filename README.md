@@ -43,10 +43,13 @@ Run it once without installing:
 bunx github:context-labs/clocked-in            # or: pnpm dlx / npx github:context-labs/clocked-in
 ```
 
-Getting a `tarball/ 404` right after the repo went public? GitHub's API is
-briefly cached — pin the branch to skip the default-branch lookup:
+Getting a `tarball/ 404`, or an **old/broken version** even after reinstalling?
+Two GitHub/Bun quirks, one fix. GitHub's API briefly caches a just-public repo
+(404), and Bun pins the first-resolved commit in its global lockfile (so a plain
+reinstall keeps the stale one). Remove it and pin the branch:
 
 ```sh
+bun remove -g clocked-in
 bun install -g github:context-labs/clocked-in#main
 ```
 

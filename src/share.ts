@@ -27,7 +27,11 @@ export function renderCardPng(stats: Stats): Buffer {
 
 function openUrl(url: string): void {
   const cmd = platform() === "darwin" ? "open" : platform() === "win32" ? "start" : "xdg-open";
-  spawn(cmd, [url], { stdio: "ignore", detached: true, shell: platform() === "win32" }).unref();
+  try {
+    const p = spawn(cmd, [url], { stdio: "ignore", detached: true, shell: platform() === "win32" });
+    p.on("error", () => {});
+    p.unref();
+  } catch {}
 }
 
 function copyToClipboard(text: string): boolean {
@@ -41,6 +45,7 @@ function copyToClipboard(text: string): boolean {
           : ["xclip", "-selection", "clipboard"];
   try {
     const p = spawn(cmd[0]!, cmd.slice(1), { stdio: ["pipe", "ignore", "ignore"] });
+    p.on("error", () => {});
     p.stdin.end(text);
     return true;
   } catch {
@@ -48,19 +53,24 @@ function copyToClipboard(text: string): boolean {
   }
 }
 
+export function tweetUrl(text: string): string {
+  return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
+}
+
 // Build the share artifacts. `open` controls side effects (off in tests).
 export function share(
   events: Event[],
   opts: { out?: string; open?: boolean } = {},
-): { png: string; text: string } {
+): { png: string; text: string; url: string } {
   const stats = computeStats(events);
   if (!stats.turns) throw new Error("Nothing to share yet — no waiting recorded.");
   const out = opts.out ?? join(homedir(), ".clocked-in", "share.png");
   const text = tweetText(stats);
+  const url = tweetUrl(text);
   writeFileSync(out, renderCardPng(stats));
   if (opts.open) {
     copyToClipboard(text);
-    openUrl(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`);
+    openUrl(url);
   }
-  return { png: out, text };
+  return { png: out, text, url };
 }
