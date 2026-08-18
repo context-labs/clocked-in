@@ -72,22 +72,34 @@ function db(path2 = dbPath()) {
     session TEXT NOT NULL,
     cwd TEXT,
     model TEXT,
-    effort TEXT
+    effort TEXT,
+    source TEXT NOT NULL DEFAULT 'hook'
   );`);
   d.exec("CREATE INDEX IF NOT EXISTS idx_events_session ON events(session, ts);");
-  for (const col of ["model", "effort"]) {
+  for (const definition of ["model TEXT", "effort TEXT", "source TEXT NOT NULL DEFAULT 'hook'"]) {
     try {
-      d.exec(`ALTER TABLE events ADD COLUMN ${col} TEXT;`);
+      d.exec(`ALTER TABLE events ADD COLUMN ${definition};`);
     } catch {}
   }
   cache.set(path2, d);
   return d;
 }
 function insertEvent(e, path2 = dbPath()) {
-  db(path2).query("INSERT INTO events (ts, kind, agent, session, cwd, model, effort) VALUES (?, ?, ?, ?, ?, ?, ?)").run(e.ts, e.kind, e.agent, e.session, e.cwd ?? null, e.model ?? null, e.effort ?? null);
+  db(path2).query("INSERT INTO events (ts, kind, agent, session, cwd, model, effort, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(e.ts, e.kind, e.agent, e.session, e.cwd ?? null, e.model ?? null, e.effort ?? null, e.source ?? "hook");
+}
+function insertEvents(events, path2 = dbPath()) {
+  if (!events.length)
+    return;
+  const d = db(path2);
+  const statement = d.query("INSERT INTO events (ts, kind, agent, session, cwd, model, effort, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+  d.transaction(() => {
+    for (const e of events) {
+      statement.run(e.ts, e.kind, e.agent, e.session, e.cwd ?? null, e.model ?? null, e.effort ?? null, e.source ?? "hook");
+    }
+  })();
 }
 function allEvents(path2 = dbPath()) {
-  return db(path2).query("SELECT ts, kind, agent, session, cwd, model, effort FROM events ORDER BY ts").all();
+  return db(path2).query("SELECT ts, kind, agent, session, cwd, model, effort, source FROM events ORDER BY ts").all();
 }
 function resetEvents(path2 = dbPath()) {
   db(path2).exec("DELETE FROM events;");
@@ -225,8 +237,8 @@ var init_card = __esm(() => {
 import { Resvg } from "@resvg/resvg-js";
 import { spawn } from "child_process";
 import { writeFileSync as writeFileSync2 } from "fs";
-import { homedir as homedir3, platform } from "os";
-import { join as join3, resolve as resolve2 } from "path";
+import { homedir as homedir4, platform } from "os";
+import { join as join4, resolve as resolve2 } from "path";
 function tweetText(stats) {
   const worst = stats.byAgent[0];
   const worstLine = worst ? ` ${worst.agent} was the worst at ${fmtDuration(worst.ms)}.` : "";
@@ -270,7 +282,7 @@ function share(events, opts = {}) {
   const stats = computeStats(events);
   if (!stats.turns)
     throw new Error("Nothing to share yet \u2014 no waiting recorded.");
-  const out = opts.out ?? join3(homedir3(), ".clocked-in", "share.png");
+  const out = opts.out ?? join4(homedir4(), ".clocked-in", "share.png");
   const text = tweetText(stats);
   const url = tweetUrl(text);
   writeFileSync2(out, renderCardPng(stats));
@@ -24295,21 +24307,207 @@ async function runHook(kind, opts) {
   } catch {}
 }
 
-// src/install.ts
+// src/history.ts
+init_db();
+init_events();
+import { existsSync, readdirSync, readFileSync as readFileSync2 } from "fs";
 import { homedir as homedir2 } from "os";
+import { basename, join as join2 } from "path";
+var MATCH_TOLERANCE_MS = 5000;
+function timestamp(value) {
+  if (typeof value === "number" && Number.isFinite(value))
+    return value;
+  if (typeof value !== "string")
+    return;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+function jsonLines(path2) {
+  try {
+    const contents = readFileSync2(path2);
+    const text = path2.endsWith(".zst") ? Bun.zstdDecompressSync(contents).toString("utf8") : contents.toString("utf8");
+    return text.split(`
+`).flatMap((line) => {
+      if (!line.trim())
+        return [];
+      try {
+        const record = JSON.parse(line);
+        return record && typeof record === "object" ? [record] : [];
+      } catch {
+        return [];
+      }
+    });
+  } catch {
+    return [];
+  }
+}
+function jsonlFiles(root) {
+  if (!existsSync(root))
+    return [];
+  const files = new Map;
+  const visit = (dir) => {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const path2 = join2(dir, entry.name);
+      if (entry.isDirectory())
+        visit(path2);
+      else if (entry.isFile() && entry.name.endsWith(".jsonl"))
+        files.set(path2, path2);
+      else if (entry.isFile() && entry.name.endsWith(".jsonl.zst") && !files.has(path2.slice(0, -4)))
+        files.set(path2.slice(0, -4), path2);
+    }
+  };
+  visit(root);
+  return [...files.values()];
+}
+function sessionFrom(records, path2) {
+  for (const record of records) {
+    const payload = record.payload;
+    const meta = payload?.meta;
+    const id = record.sessionId ?? record.session_id ?? payload?.session_id ?? meta?.id;
+    if (typeof id === "string" && id)
+      return id;
+  }
+  return basename(path2, ".jsonl");
+}
+function codexTurns(records, path2 = "session.jsonl") {
+  const session = sessionFrom(records, path2);
+  let pending;
+  let model;
+  let effort;
+  const turns = [];
+  for (const record of records) {
+    const at = timestamp(record.timestamp);
+    const payload = record.payload;
+    const type = record.type === "event_msg" ? payload?.type : undefined;
+    if (record.type === "turn_context") {
+      if (typeof payload?.model === "string")
+        model = payload.model;
+      if (typeof payload?.effort === "string")
+        effort = payload.effort;
+      if (typeof payload?.reasoning_effort === "string")
+        effort = payload.reasoning_effort;
+    }
+    if (!at)
+      continue;
+    if (type === "task_started" || type === "turn_started") {
+      pending = at;
+      continue;
+    }
+    if ((type === "task_complete" || type === "turn_complete") && pending !== undefined && at >= pending) {
+      turns.push({ agent: "codex", session, start: pending, stop: at, model, effort });
+      pending = undefined;
+    }
+  }
+  return turns;
+}
+function isToolResult(record) {
+  const content = record.message?.content;
+  return Array.isArray(content) && content.length > 0 && content.every((part) => part?.type === "tool_result");
+}
+function claudeTurns(records, path2 = "session.jsonl") {
+  const session = sessionFrom(records, path2);
+  let pending;
+  const turns = [];
+  for (const record of records) {
+    const at = timestamp(record.timestamp);
+    if (!at)
+      continue;
+    if (record.type === "user" && !isToolResult(record)) {
+      pending = at;
+      continue;
+    }
+    const message = record.message;
+    if (record.type !== "assistant" || message?.stop_reason !== "end_turn" || pending === undefined)
+      continue;
+    if (at >= pending) {
+      turns.push({
+        agent: "claude-code",
+        session,
+        start: pending,
+        stop: at,
+        model: typeof message.model === "string" ? message.model : undefined
+      });
+    }
+    pending = undefined;
+  }
+  return turns;
+}
+function scanHistory(home = homedir2()) {
+  const codexFiles = [
+    ...jsonlFiles(join2(home, ".codex", "sessions")),
+    ...jsonlFiles(join2(home, ".codex", "archived_sessions"))
+  ];
+  const claudeFiles = jsonlFiles(join2(home, ".claude", "projects"));
+  const turns = [
+    ...codexFiles.flatMap((path2) => codexTurns(jsonLines(path2), path2)),
+    ...claudeFiles.flatMap((path2) => claudeTurns(jsonLines(path2), path2))
+  ];
+  return { files: codexFiles.length + claudeFiles.length, turns };
+}
+function matchesInterval(turn, interval) {
+  return turn.agent === interval.agent && Math.abs(turn.start - interval.start) <= MATCH_TOLERANCE_MS && Math.abs(turn.stop - (interval.start + interval.ms)) <= MATCH_TOLERANCE_MS;
+}
+function eventsFor(turn) {
+  return [
+    { ts: turn.start, kind: "start", agent: turn.agent, session: turn.session, source: "history" },
+    {
+      ts: turn.stop,
+      kind: "stop",
+      agent: turn.agent,
+      session: turn.session,
+      model: turn.model,
+      effort: turn.effort,
+      source: "history"
+    }
+  ];
+}
+function syncHistory(dbPath2, home = homedir2()) {
+  const scan = scanHistory(home);
+  const known = pairIntervals(allEvents(dbPath2));
+  const imported = [];
+  for (const turn of scan.turns) {
+    if (turn.stop < turn.start || known.some((interval) => matchesInterval(turn, interval)))
+      continue;
+    imported.push(turn);
+    known.push({
+      agent: turn.agent,
+      session: turn.session,
+      start: turn.start,
+      ms: turn.stop - turn.start,
+      model: turn.model,
+      effort: turn.effort
+    });
+  }
+  insertEvents(imported.flatMap(eventsFor), dbPath2);
+  return {
+    files: scan.files,
+    found: scan.turns.length,
+    imported: imported.length,
+    importedMs: imported.reduce((total, turn) => total + turn.stop - turn.start, 0)
+  };
+}
+
+// src/install.ts
+import { homedir as homedir3 } from "os";
 import { resolve } from "path";
 
 // src/agents.ts
 init_events();
-import { existsSync, mkdirSync as mkdirSync2, readFileSync as readFileSync2, rmSync, writeFileSync } from "fs";
-import { dirname as dirname2, join as join2 } from "path";
+import { existsSync as existsSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync3, rmSync, writeFileSync } from "fs";
+import { dirname as dirname2, join as join3 } from "path";
 var OUR_CMD = new RegExp(`\\bhook (?:start|stop) --agent (?:${AGENTS.join("|")})\\b`);
 var cmd = (base, kind, agent) => `${base} hook ${kind} --agent ${agent}`;
 function readJson(file) {
-  if (!existsSync(file))
+  if (!existsSync2(file))
     return {};
   try {
-    return JSON.parse(readFileSync2(file, "utf8"));
+    return JSON.parse(readFileSync3(file, "utf8"));
   } catch {
     return {};
   }
@@ -24335,7 +24533,7 @@ function mergeJsonHooks(file, base, agent) {
   writeJson(file, data);
 }
 function unmergeJsonHooks(file) {
-  if (!existsSync(file))
+  if (!existsSync2(file))
     return;
   const data = readJson(file);
   if (!data.hooks)
@@ -24375,7 +24573,7 @@ function mergeCursorHooks(file, base) {
   writeJson(file, data);
 }
 function unmergeCursorHooks(file) {
-  if (!existsSync(file))
+  if (!existsSync2(file))
     return;
   const data = readJson(file);
   if (!data.hooks)
@@ -24422,52 +24620,52 @@ function writeOwnFile(file, content) {
   writeFileSync(file, content);
 }
 function removeFile(file) {
-  if (existsSync(file))
+  if (existsSync2(file))
     rmSync(file);
 }
 var INSTALLERS = [
   {
     name: "claude-code",
-    path: (h) => join2(h, ".claude", "settings.json"),
-    detected: (h) => existsSync(join2(h, ".claude")),
-    install: (base, h) => mergeJsonHooks(join2(h, ".claude", "settings.json"), base, "claude-code"),
-    uninstall: (h) => unmergeJsonHooks(join2(h, ".claude", "settings.json"))
+    path: (h) => join3(h, ".claude", "settings.json"),
+    detected: (h) => existsSync2(join3(h, ".claude")),
+    install: (base, h) => mergeJsonHooks(join3(h, ".claude", "settings.json"), base, "claude-code"),
+    uninstall: (h) => unmergeJsonHooks(join3(h, ".claude", "settings.json"))
   },
   {
     name: "codex",
-    path: (h) => join2(h, ".codex", "hooks.json"),
-    detected: (h) => existsSync(join2(h, ".codex")),
-    install: (base, h) => mergeJsonHooks(join2(h, ".codex", "hooks.json"), base, "codex"),
-    uninstall: (h) => unmergeJsonHooks(join2(h, ".codex", "hooks.json"))
+    path: (h) => join3(h, ".codex", "hooks.json"),
+    detected: (h) => existsSync2(join3(h, ".codex")),
+    install: (base, h) => mergeJsonHooks(join3(h, ".codex", "hooks.json"), base, "codex"),
+    uninstall: (h) => unmergeJsonHooks(join3(h, ".codex", "hooks.json"))
   },
   {
     name: "grok",
-    path: (h) => join2(h, ".grok", "hooks", "clocked-in.json"),
-    detected: (h) => existsSync(join2(h, ".grok")),
-    install: (base, h) => writeJson(join2(h, ".grok", "hooks", "clocked-in.json"), grokConfig(base)),
-    uninstall: (h) => removeFile(join2(h, ".grok", "hooks", "clocked-in.json"))
+    path: (h) => join3(h, ".grok", "hooks", "clocked-in.json"),
+    detected: (h) => existsSync2(join3(h, ".grok")),
+    install: (base, h) => writeJson(join3(h, ".grok", "hooks", "clocked-in.json"), grokConfig(base)),
+    uninstall: (h) => removeFile(join3(h, ".grok", "hooks", "clocked-in.json"))
   },
   {
     name: "cursor",
-    path: (h) => join2(h, ".cursor", "hooks.json"),
-    detected: (h) => existsSync(join2(h, ".cursor")),
-    install: (base, h) => mergeCursorHooks(join2(h, ".cursor", "hooks.json"), base),
-    uninstall: (h) => unmergeCursorHooks(join2(h, ".cursor", "hooks.json"))
+    path: (h) => join3(h, ".cursor", "hooks.json"),
+    detected: (h) => existsSync2(join3(h, ".cursor")),
+    install: (base, h) => mergeCursorHooks(join3(h, ".cursor", "hooks.json"), base),
+    uninstall: (h) => unmergeCursorHooks(join3(h, ".cursor", "hooks.json"))
   },
   {
     name: "opencode",
-    path: (h) => join2(h, ".config", "opencode", "plugin", "clocked-in.ts"),
-    detected: (h) => existsSync(join2(h, ".config", "opencode")),
-    install: (base, h) => writeOwnFile(join2(h, ".config", "opencode", "plugin", "clocked-in.ts"), opencodePlugin(base)),
-    uninstall: (h) => removeFile(join2(h, ".config", "opencode", "plugin", "clocked-in.ts")),
+    path: (h) => join3(h, ".config", "opencode", "plugin", "clocked-in.ts"),
+    detected: (h) => existsSync2(join3(h, ".config", "opencode")),
+    install: (base, h) => writeOwnFile(join3(h, ".config", "opencode", "plugin", "clocked-in.ts"), opencodePlugin(base)),
+    uninstall: (h) => removeFile(join3(h, ".config", "opencode", "plugin", "clocked-in.ts")),
     unverified: true
   },
   {
     name: "pi",
-    path: (h) => join2(h, ".config", "pi", "extensions", "clocked-in.ts"),
-    detected: (h) => existsSync(join2(h, ".config", "pi")) || existsSync(join2(h, ".pi")),
-    install: (base, h) => writeOwnFile(join2(h, ".config", "pi", "extensions", "clocked-in.ts"), piExtension(base)),
-    uninstall: (h) => removeFile(join2(h, ".config", "pi", "extensions", "clocked-in.ts")),
+    path: (h) => join3(h, ".config", "pi", "extensions", "clocked-in.ts"),
+    detected: (h) => existsSync2(join3(h, ".config", "pi")) || existsSync2(join3(h, ".pi")),
+    install: (base, h) => writeOwnFile(join3(h, ".config", "pi", "extensions", "clocked-in.ts"), piExtension(base)),
+    uninstall: (h) => removeFile(join3(h, ".config", "pi", "extensions", "clocked-in.ts")),
     unverified: true
   }
 ];
@@ -24485,7 +24683,7 @@ function pick(names, all, home) {
   return names.map(installerFor).filter((a) => Boolean(a));
 }
 function installAgents(names, opts = {}) {
-  const home = opts.home ?? homedir2();
+  const home = opts.home ?? homedir3();
   const base = resolveBase(Boolean(opts.local));
   return pick(names, Boolean(opts.all), home).map((a) => {
     a.install(base, home);
@@ -24493,7 +24691,7 @@ function installAgents(names, opts = {}) {
   });
 }
 function uninstallAgents(names, opts = {}) {
-  const home = opts.home ?? homedir2();
+  const home = opts.home ?? homedir3();
   const targets = opts.all ? INSTALLERS : names.map(installerFor).filter((a) => Boolean(a));
   return targets.map((a) => {
     a.uninstall(home);
@@ -24539,12 +24737,20 @@ init_share();
 var program2 = new Command;
 program2.name("clocked-in").description("Measure how much time you spend waiting for coding agents.").version("0.1.0");
 program2.action(async () => {
+  syncHistory();
   if (!process.stdout.isTTY)
     return console.log(report(allEvents()));
   const { runTui: runTui2 } = await init_tui().then(() => exports_tui);
   runTui2();
 });
-program2.command("report").description("Print a text summary of time spent waiting").option("-d, --days <n>", "only the last N days", (v) => Number(v)).action((opts) => console.log(report(allEvents(), { days: opts.days })));
+program2.command("report").description("Print a text summary of time spent waiting").option("-d, --days <n>", "only the last N days", (v) => Number(v)).action((opts) => {
+  syncHistory();
+  console.log(report(allEvents(), { days: opts.days }));
+});
+program2.command("history").description("Import completed turns from saved Codex and Claude Code history").action(() => {
+  const result2 = syncHistory();
+  console.log(`\u2713 scanned ${result2.files} history file${result2.files === 1 ? "" : "s"}; found ${result2.found} completed turn${result2.found === 1 ? "" : "s"}; imported ${result2.imported}`);
+});
 program2.command("install [agents...]").description(`Install hooks. Agents: ${AGENTS.join(", ")}`).option("-a, --all", "install into every detected agent").option("--local", "point hooks at this checkout (dev) instead of the global bin").action((agents, opts) => {
   const results = installAgents(agents, opts);
   if (!results.length)
@@ -24568,6 +24774,7 @@ program2.command("hook <kind>").description("(internal) record a start/stop even
 });
 program2.command("share").description("Generate a share image + draft a tweet").option("-o, --out <path>", "output PNG path").option("--no-open", "don't open X or copy to clipboard").action((opts) => {
   try {
+    syncHistory();
     const { png, text, url } = share(allEvents(), { out: opts.out, open: opts.open });
     console.log(`\u2713 image \u2192 ${png}
 

@@ -15,6 +15,7 @@ export type Event = {
   cwd?: string;
   model?: string; // the model that ran the turn (known on `stop`)
   effort?: string; // reasoning effort, if the harness exposes it
+  source?: "hook" | "history";
 };
 
 export type Interval = {
