@@ -72,3 +72,22 @@ test("since cutoff (clocked-in start) shows only turns from the session onward",
   expect(s.totalMs).toBe(6000);
   expect(s.byAgent).toEqual([{ agent: "codex", ms: 6000, turns: 1 }]);
 });
+
+test("byModel reports avg + p50 wait per turn (speed signal)", () => {
+  const durs = [1000, 3000, 60000]; // one slow outlier
+  const events: Event[] = durs.flatMap((ms, i) => [
+    { ts: i * 1e6, kind: "start", agent: "claude-code", session: "s" + i },
+    {
+      ts: i * 1e6 + ms,
+      kind: "stop",
+      agent: "claude-code",
+      session: "s" + i,
+      model: "claude-opus-4-8",
+      effort: "high",
+    },
+  ]);
+  const m = computeStats(events).byModel[0]!;
+  expect(m.turns).toBe(3);
+  expect(m.avgMs).toBeCloseTo((1000 + 3000 + 60000) / 3, 5); // mean pulled up by the outlier
+  expect(m.p50Ms).toBe(3000); // median unaffected
+});

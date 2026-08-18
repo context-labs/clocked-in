@@ -3,6 +3,7 @@ import {
   fmtDuration,
   heatmap,
   pairIntervals,
+  percentile,
   toolAction,
   toolIntervals,
   unionMs,
@@ -151,4 +152,11 @@ test("heatmap places days into the weekday×week grid (newest column = this week
   expect(hm.grid[tue]![3]).toBe(5000); // this week
   expect(hm.grid[tue]![2]).toBe(2000); // last week
   expect(hm.grid[tue]![0]).toBe(0); // 3 weeks ago: empty
+});
+
+test("percentile is nearest-rank and handles empty/single", () => {
+  expect(percentile([], 0.5)).toBe(0);
+  expect(percentile([42], 0.9)).toBe(42);
+  expect(percentile([10, 20, 30], 0.5)).toBe(20);
+  expect(percentile([1000, 2000, 3000, 100000], 0.5)).toBe(3000); // resists the outlier vs mean
 });

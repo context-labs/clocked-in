@@ -170,12 +170,14 @@ function App({ since }: { since?: number }) {
 
       {stats.byModel.length > 0 && (
         <Box marginTop={1} flexDirection="column">
-          <Text dimColor>by model · effort</Text>
+          <Text dimColor>by model · effort — wait per turn (speed)</Text>
           {stats.byModel.map((m) => (
             <Text key={`${m.agent}/${m.model}/${m.effort}`}>
-              <Text dimColor>{`${m.model} · ${m.effort}`.padEnd(30)}</Text>
-              <Text color={ORANGE}>{fmtDuration(m.ms).padStart(9)}</Text>
-              <Text dimColor>{`  ${m.agent} (${m.turns})`}</Text>
+              <Text dimColor>{`${m.model} · ${m.effort}`.padEnd(28)}</Text>
+              <Text color={ORANGE}>{`${fmtDuration(m.avgMs)}/turn`.padStart(12)}</Text>
+              <Text
+                dimColor
+              >{`  p50 ${fmtDuration(m.p50Ms).padStart(7)} · ${fmtDuration(m.ms)} total (${m.turns})`}</Text>
             </Text>
           ))}
         </Box>

@@ -38,13 +38,13 @@ export function report(
     );
   }
 
-  lines.push("", "  By model & effort:");
+  lines.push("", "  By model & effort  (wait per turn — a rough speed signal):");
   for (const a of s.byAgent) {
     const rows = s.byModel.filter((m) => m.agent === a.agent);
     lines.push(`    ${a.agent}`);
     for (const m of rows) {
       lines.push(
-        `      ${m.model.padEnd(22)} ${m.effort.padEnd(7)} ${fmtDuration(m.ms).padStart(10)}  (${m.turns} turns)`,
+        `      ${m.model.padEnd(22)} ${m.effort.padEnd(7)} ${fmtDuration(m.avgMs).padStart(9)}/turn  p50 ${fmtDuration(m.p50Ms).padStart(8)}  (${m.turns} turns · ${fmtDuration(m.ms)} total)`,
       );
     }
   }

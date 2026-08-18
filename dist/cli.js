@@ -149,6 +149,12 @@ function fmtDate(ms) {
   const d = new Date(ms);
   return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
 }
+function percentile(sortedAsc, p) {
+  if (!sortedAsc.length)
+    return 0;
+  const idx = Math.min(sortedAsc.length - 1, Math.max(0, Math.round(p * (sortedAsc.length - 1))));
+  return sortedAsc[idx];
+}
 function heatmap(byDay, now, weeks) {
   const w = Math.max(1, Math.floor(weeks));
   const grid = Array.from({ length: 7 }, () => new Array(w).fill(0));
@@ -2398,6 +2404,7 @@ function computeStats(events, opts = {}) {
   const intervals = pairIntervals(events).filter((i) => i.start >= cutoff);
   const agents = new Map;
   const models = new Map;
+  const modelDurations = new Map;
   const days = new Map;
   let totalMs = 0;
   let todayMs = 0;
@@ -2420,10 +2427,23 @@ function computeStats(events, opts = {}) {
     const model = i.model ?? "unknown";
     const effort = i.effort ?? "\u2014";
     const key = `${i.agent}\x00${model}\x00${effort}`;
-    const m = models.get(key) ?? { agent: i.agent, model, effort, ms: 0, turns: 0 };
+    const m = models.get(key) ?? {
+      agent: i.agent,
+      model,
+      effort,
+      ms: 0,
+      turns: 0,
+      avgMs: 0,
+      p50Ms: 0
+    };
     m.ms += i.ms;
     m.turns += 1;
     models.set(key, m);
+    (modelDurations.get(key) ?? modelDurations.set(key, []).get(key)).push(i.ms);
+  }
+  for (const [key, m] of models) {
+    m.avgMs = m.ms / m.turns;
+    m.p50Ms = percentile(modelDurations.get(key).sort((a, b) => a - b), 0.5);
   }
   const tools = new Map;
   const actions = new Map;
@@ -2482,12 +2502,12 @@ function report(events, opts = {}) {
   for (const a of s.byAgent) {
     lines.push(`    ${a.agent.padEnd(14)} ${fmtDuration(a.ms).padStart(10)}  (${a.turns} turns, ${fmtDuration(a.ms / a.turns)}/turn)`);
   }
-  lines.push("", "  By model & effort:");
+  lines.push("", "  By model & effort  (wait per turn \u2014 a rough speed signal):");
   for (const a of s.byAgent) {
     const rows = s.byModel.filter((m) => m.agent === a.agent);
     lines.push(`    ${a.agent}`);
     for (const m of rows) {
-      lines.push(`      ${m.model.padEnd(22)} ${m.effort.padEnd(7)} ${fmtDuration(m.ms).padStart(10)}  (${m.turns} turns)`);
+      lines.push(`      ${m.model.padEnd(22)} ${m.effort.padEnd(7)} ${fmtDuration(m.avgMs).padStart(9)}/turn  p50 ${fmtDuration(m.p50Ms).padStart(8)}  (${m.turns} turns \xB7 ${fmtDuration(m.ms)} total)`);
     }
   }
   if (s.byAction.length) {
@@ -25313,21 +25333,21 @@ function App2({ since }) {
         children: [
           /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
             dimColor: true,
-            children: "by model \xB7 effort"
+            children: "by model \xB7 effort \u2014 wait per turn (speed)"
           }, undefined, false, undefined, this),
           stats.byModel.map((m) => /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
             children: [
               /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
                 dimColor: true,
-                children: `${m.model} \xB7 ${m.effort}`.padEnd(30)
+                children: `${m.model} \xB7 ${m.effort}`.padEnd(28)
               }, undefined, false, undefined, this),
               /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
                 color: ORANGE,
-                children: fmtDuration(m.ms).padStart(9)
+                children: `${fmtDuration(m.avgMs)}/turn`.padStart(12)
               }, undefined, false, undefined, this),
               /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
                 dimColor: true,
-                children: `  ${m.agent} (${m.turns})`
+                children: `  p50 ${fmtDuration(m.p50Ms).padStart(7)} \xB7 ${fmtDuration(m.ms)} total (${m.turns})`
               }, undefined, false, undefined, this)
             ]
           }, `${m.agent}/${m.model}/${m.effort}`, true, undefined, this))

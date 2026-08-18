@@ -153,6 +153,14 @@ export function fmtDate(ms: number): string {
 }
 
 const DAY = 86_400_000;
+
+/** Nearest-rank percentile of an ascending-sorted array (p in [0,1]). */
+export function percentile(sortedAsc: number[], p: number): number {
+  if (!sortedAsc.length) return 0;
+  const idx = Math.min(sortedAsc.length - 1, Math.max(0, Math.round(p * (sortedAsc.length - 1))));
+  return sortedAsc[idx]!;
+}
+
 export type Heatmap = { grid: number[][]; weeks: number; max: number };
 
 /**

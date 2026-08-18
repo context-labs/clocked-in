@@ -149,6 +149,12 @@ function fmtDate(ms) {
   const d = new Date(ms);
   return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
 }
+function percentile(sortedAsc, p) {
+  if (!sortedAsc.length)
+    return 0;
+  const idx = Math.min(sortedAsc.length - 1, Math.max(0, Math.round(p * (sortedAsc.length - 1))));
+  return sortedAsc[idx];
+}
 function heatmap(byDay, now, weeks) {
   const w = Math.max(1, Math.floor(weeks));
   const grid = Array.from({ length: 7 }, () => new Array(w).fill(0));

@@ -1,6 +1,22 @@
-import { pairIntervals, toolIntervals, unionMs, type Event, type Interval } from "./events.ts";
+import {
+  pairIntervals,
+  percentile,
+  toolIntervals,
+  unionMs,
+  type Event,
+  type Interval,
+} from "./events.ts";
 
-export type ModelRow = { agent: string; model: string; effort: string; ms: number; turns: number };
+// avgMs/p50Ms = wait per turn (a "how slow" signal; p50 resists outlier turns).
+export type ModelRow = {
+  agent: string;
+  model: string;
+  effort: string;
+  ms: number;
+  turns: number;
+  avgMs: number;
+  p50Ms: number;
+};
 export type ToolRow = { tool: string; action: string; ms: number; count: number };
 export type ActionRow = { action: string; ms: number; count: number };
 
@@ -33,6 +49,7 @@ export function computeStats(
 
   const agents = new Map<string, { ms: number; turns: number }>();
   const models = new Map<string, ModelRow>();
+  const modelDurations = new Map<string, number[]>(); // per-model turn durations, for p50
   const days = new Map<number, number>();
   let totalMs = 0;
   let todayMs = 0;
@@ -53,10 +70,28 @@ export function computeStats(
     const model = i.model ?? "unknown";
     const effort = i.effort ?? "—";
     const key = `${i.agent}\0${model}\0${effort}`;
-    const m = models.get(key) ?? { agent: i.agent, model, effort, ms: 0, turns: 0 };
+    const m = models.get(key) ?? {
+      agent: i.agent,
+      model,
+      effort,
+      ms: 0,
+      turns: 0,
+      avgMs: 0,
+      p50Ms: 0,
+    };
     m.ms += i.ms;
     m.turns += 1;
     models.set(key, m);
+    (modelDurations.get(key) ?? modelDurations.set(key, []).get(key)!).push(i.ms);
+  }
+
+  // Finalize per-model speed stats: average and median wait per turn.
+  for (const [key, m] of models) {
+    m.avgMs = m.ms / m.turns;
+    m.p50Ms = percentile(
+      modelDurations.get(key)!.sort((a, b) => a - b),
+      0.5,
+    );
   }
 
   // Tool time (a subset of wait time, measured PreToolUse→PostToolUse).
