@@ -2,15 +2,29 @@
   "name": "clocked-in",
   "module": "src/cli.tsx",
   "type": "module",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Measure how much time you spend waiting on coding agents (Claude Code, Codex, Grok, Cursor, opencode, pi).",
   "license": "MIT",
-  "keywords": ["cli", "claude-code", "codex", "grok", "cursor", "opencode", "agents", "hooks", "tui"],
+  "keywords": [
+    "cli",
+    "claude-code",
+    "codex",
+    "grok",
+    "cursor",
+    "opencode",
+    "agents",
+    "hooks",
+    "tui"
+  ],
   "bin": {
     "clocked-in": "dist/cli.js",
     "clocked-in-hook": "dist/hook-cli.js"
   },
-  "files": ["dist", "assets", "src"],
+  "files": [
+    "dist",
+    "assets",
+    "src"
+  ],
   "scripts": {
     "build": "bun run scripts/build.ts",
     "build:release": "bun run scripts/build-release.ts",
