@@ -2,7 +2,7 @@
   "name": "clocked-in",
   "module": "src/cli.tsx",
   "type": "module",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Measure how much time you spend waiting on coding agents (Claude Code, Codex, Grok, Cursor, opencode, pi).",
   "license": "MIT",
   "keywords": [
