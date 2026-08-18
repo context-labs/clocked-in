@@ -24388,7 +24388,10 @@ async function readStdin() {
   if (process.stdin.isTTY)
     return {};
   try {
-    const text = await Promise.race([Bun.stdin.text(), new Promise((r) => setTimeout(() => r(""), 300))]);
+    const text = await Promise.race([
+      Bun.stdin.text(),
+      new Promise((r) => setTimeout(() => r(""), 300))
+    ]);
     return text.trim() ? JSON.parse(text) : {};
   } catch {
     return {};
@@ -24456,7 +24459,9 @@ import { resolve } from "path";
 init_events();
 import { existsSync, mkdirSync as mkdirSync2, readFileSync as readFileSync2, rmSync, writeFileSync } from "fs";
 import { dirname as dirname2, join as join2 } from "path";
-var OUR_CMD = new RegExp(`--agent (?:${AGENTS.join("|")})\\b`);
+var OUR_ENTRY = /clocked-in-hook|hook-cli\.[tj]s|clocked-in hook|cli\.[tj]sx? hook/;
+var OUR_AGENT = new RegExp(`--agent (?:${AGENTS.join("|")})\\b`);
+var isOurCommand = (c) => OUR_ENTRY.test(c) && OUR_AGENT.test(c);
 var cmd = (base, kind, agent) => `${base} ${kind} --agent ${agent}`;
 function readJson(file) {
   if (!existsSync(file))
@@ -24472,7 +24477,7 @@ function writeJson(file, data) {
   writeFileSync(file, JSON.stringify(data, null, 2) + `
 `);
 }
-var isOurs = (e) => e.hooks?.some((h) => typeof h.command === "string" && OUR_CMD.test(h.command));
+var isOurs = (e) => e.hooks?.some((h) => typeof h.command === "string" && isOurCommand(h.command));
 var JSON_EVENTS = [
   ["UserPromptSubmit", "start"],
   ["Stop", "stop"],
@@ -24525,7 +24530,7 @@ function mergeCursorHooks(file, base) {
     ["postToolUse", "tool-end"]
   ]) {
     const arr = Array.isArray(hooks[event]) ? hooks[event] : [];
-    const others = arr.filter((e) => !(typeof e.command === "string" && OUR_CMD.test(e.command)));
+    const others = arr.filter((e) => !(typeof e.command === "string" && isOurCommand(e.command)));
     others.push({ command: cmd(base, kind, "cursor") });
     hooks[event] = others;
   }
@@ -24540,7 +24545,7 @@ function unmergeCursorHooks(file) {
   for (const event of Object.keys(data.hooks)) {
     if (!Array.isArray(data.hooks[event]))
       continue;
-    data.hooks[event] = data.hooks[event].filter((e) => !(typeof e.command === "string" && OUR_CMD.test(e.command)));
+    data.hooks[event] = data.hooks[event].filter((e) => !(typeof e.command === "string" && isOurCommand(e.command)));
     if (data.hooks[event].length === 0)
       delete data.hooks[event];
   }

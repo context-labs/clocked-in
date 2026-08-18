@@ -240,7 +240,10 @@ async function readStdin() {
   if (process.stdin.isTTY)
     return {};
   try {
-    const text = await Promise.race([Bun.stdin.text(), new Promise((r) => setTimeout(() => r(""), 300))]);
+    const text = await Promise.race([
+      Bun.stdin.text(),
+      new Promise((r) => setTimeout(() => r(""), 300))
+    ]);
     return text.trim() ? JSON.parse(text) : {};
   } catch {
     return {};

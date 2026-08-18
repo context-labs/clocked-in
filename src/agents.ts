@@ -2,18 +2,15 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, join } from "node:path";
 import { AGENTS, type Agent } from "./events.ts";
 
-// Our hook commands always end with `--agent <one-of-ours>` — distinctive enough
-// to identify on uninstall regardless of the bin prefix (clocked-in-hook, a
-// bun+path --local invocation, …). Derived from AGENTS so it can't drift.
-const OUR_CMD = new RegExp(`--agent (?:${AGENTS.join("|")})\\b`);
-
-// The four hook kinds ↔ their CLI arg.
-const KINDS = [
-  ["start", "start"],
-  ["stop", "stop"],
-  ["tool-start", "tool_start"],
-  ["tool-end", "tool_end"],
-] as const;
+// Identify our hook commands for idempotent re-install and clean uninstall —
+// WITHOUT matching a user's own hook that merely mentions `--agent <name>`.
+// A command is ours only if it invokes one of our entrypoints AND targets one of
+// our agents. Entrypoints cover every form we've ever written: the current fast
+// bin (`clocked-in-hook`, `hook-cli.ts/js`) and legacy ones (`clocked-in hook`,
+// `cli.tsx/js hook`). Derived from AGENTS so the agent list can't drift.
+const OUR_ENTRY = /clocked-in-hook|hook-cli\.[tj]s|clocked-in hook|cli\.[tj]sx? hook/;
+const OUR_AGENT = new RegExp(`--agent (?:${AGENTS.join("|")})\\b`);
+const isOurCommand = (c: string) => OUR_ENTRY.test(c) && OUR_AGENT.test(c);
 
 export type AgentInstaller = {
   name: Agent;
@@ -48,7 +45,7 @@ function writeJson(file: string, data: unknown): void {
 
 type HookEntry = { hooks: { type: string; command: string }[] };
 const isOurs = (e: HookEntry) =>
-  e.hooks?.some((h) => typeof h.command === "string" && OUR_CMD.test(h.command));
+  e.hooks?.some((h) => typeof h.command === "string" && isOurCommand(h.command));
 
 // Claude Code / Codex / Grok event names ↔ our CLI kinds.
 const JSON_EVENTS: [string, CliKind][] = [
@@ -108,7 +105,7 @@ function mergeCursorHooks(file: string, base: string): void {
     ["postToolUse", "tool-end"],
   ] as const) {
     const arr: CursorEntry[] = Array.isArray(hooks[event]) ? hooks[event] : [];
-    const others = arr.filter((e) => !(typeof e.command === "string" && OUR_CMD.test(e.command)));
+    const others = arr.filter((e) => !(typeof e.command === "string" && isOurCommand(e.command)));
     others.push({ command: cmd(base, kind, "cursor") });
     hooks[event] = others;
   }
@@ -122,7 +119,7 @@ function unmergeCursorHooks(file: string): void {
   for (const event of Object.keys(data.hooks)) {
     if (!Array.isArray(data.hooks[event])) continue;
     data.hooks[event] = data.hooks[event].filter(
-      (e: CursorEntry) => !(typeof e.command === "string" && OUR_CMD.test(e.command)),
+      (e: CursorEntry) => !(typeof e.command === "string" && isOurCommand(e.command)),
     );
     if (data.hooks[event].length === 0) delete data.hooks[event];
   }
