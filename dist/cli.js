@@ -149,6 +149,25 @@ function fmtDate(ms) {
   const d = new Date(ms);
   return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
 }
+function heatmap(byDay, now, weeks) {
+  const w = Math.max(1, Math.floor(weeks));
+  const grid = Array.from({ length: 7 }, () => new Array(w).fill(0));
+  const todayMid = new Date(now).setHours(0, 0, 0, 0);
+  const thisSunday = todayMid - new Date(todayMid).getDay() * DAY;
+  let max = 0;
+  for (const { day, ms } of byDay) {
+    const dow = new Date(day).getDay();
+    const daySunday = day - dow * DAY;
+    const weeksAgo = Math.round((thisSunday - daySunday) / (7 * DAY));
+    const col = w - 1 - weeksAgo;
+    if (col >= 0 && col < w) {
+      grid[dow][col] += ms;
+      if (grid[dow][col] > max)
+        max = grid[dow][col];
+    }
+  }
+  return { grid, weeks: w, max };
+}
 function fmtDuration(ms) {
   const s = Math.round(ms / 1000);
   if (s < 60)
@@ -162,7 +181,7 @@ function fmtDuration(ms) {
   const d = Math.floor(h / 24);
   return `${d}d ${h % 24}h`;
 }
-var AGENTS, KIND, MONTHS;
+var AGENTS, KIND, MONTHS, DAY = 86400000;
 var init_events = __esm(() => {
   AGENTS = ["claude-code", "codex", "grok", "cursor", "opencode", "pi"];
   KIND = {
@@ -2379,6 +2398,7 @@ function computeStats(events, opts = {}) {
   const intervals = pairIntervals(events).filter((i) => i.start >= cutoff);
   const agents = new Map;
   const models = new Map;
+  const days = new Map;
   let totalMs = 0;
   let todayMs = 0;
   let sinceMs = null;
@@ -2391,6 +2411,8 @@ function computeStats(events, opts = {}) {
       sinceMs = i.start;
     if (!longest || i.ms > longest.ms)
       longest = i;
+    const day = new Date(i.start).setHours(0, 0, 0, 0);
+    days.set(day, (days.get(day) ?? 0) + i.ms);
     const g = agents.get(i.agent) ?? { ms: 0, turns: 0 };
     g.ms += i.ms;
     g.turns += 1;
@@ -2425,7 +2447,8 @@ function computeStats(events, opts = {}) {
     byAgent: [...agents].map(([agent, g]) => ({ agent, ...g })).sort((a, b) => b.ms - a.ms),
     byModel: [...models.values()].sort((a, b) => b.ms - a.ms),
     byTool: [...tools.values()].sort((a, b) => b.ms - a.ms),
-    byAction: [...actions.values()].sort((a, b) => b.ms - a.ms)
+    byAction: [...actions.values()].sort((a, b) => b.ms - a.ms),
+    byDay: [...days].map(([day, ms]) => ({ day, ms })).sort((a, b) => a.day - b.day)
   };
 }
 var DAY_MS = 86400000;
@@ -25085,6 +25108,49 @@ function bar(ms, max2, width = 24) {
   const n = Math.round(ms / Math.max(1, max2) * width);
   return "\u2588".repeat(n) + "\u2591".repeat(width - n);
 }
+function Heat({ stats, now: now2 }) {
+  if (!stats.byDay.length || !stats.sinceMs)
+    return null;
+  const weeks = Math.max(4, Math.min(26, Math.ceil((now2 - stats.sinceMs) / WEEK) + 1));
+  const hm = heatmap(stats.byDay, now2, weeks);
+  return /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Box_default, {
+    marginTop: 1,
+    flexDirection: "column",
+    children: [
+      /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
+        dimColor: true,
+        children: [
+          "wait per day \xB7 last ",
+          weeks,
+          "w"
+        ]
+      }, undefined, true, undefined, this),
+      hm.grid.map((row, dow) => /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
+            dimColor: true,
+            children: DOW[dow].padEnd(4)
+          }, undefined, false, undefined, this),
+          row.map((ms, c) => /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
+            color: HEAT[level(ms, hm.max)],
+            children: "\u2587"
+          }, c, false, undefined, this))
+        ]
+      }, dow, true, undefined, this)),
+      /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
+        dimColor: true,
+        children: [
+          "    less ",
+          [1, 2, 3, 4].map((l) => /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Text, {
+            color: HEAT[l],
+            children: "\u2587"
+          }, l, false, undefined, this)),
+          " more"
+        ]
+      }, undefined, true, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
+}
 function App2() {
   const { exit } = use_app_default();
   const [stats, setStats] = import_react34.useState(() => computeStats(allEvents()));
@@ -25194,6 +25260,10 @@ function App2() {
           }, undefined, true, undefined, this)
         ]
       }, undefined, true, undefined, this),
+      /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Heat, {
+        stats,
+        now: Date.now()
+      }, undefined, false, undefined, this),
       /* @__PURE__ */ jsx_dev_runtime.jsxDEV(Box_default, {
         marginTop: 1,
         flexDirection: "column",
@@ -25294,7 +25364,7 @@ function App2() {
 function runTui() {
   render_default(/* @__PURE__ */ jsx_dev_runtime.jsxDEV(App2, {}, undefined, false, undefined, this));
 }
-var import_react34, jsx_dev_runtime, ORANGE = "#f97316";
+var import_react34, jsx_dev_runtime, ORANGE = "#f97316", WEEK, HEAT, DOW, level = (ms, max2) => ms <= 0 || max2 <= 0 ? 0 : Math.min(4, Math.ceil(ms / max2 * 4));
 var init_tui = __esm(async () => {
   init_db();
   init_events();
@@ -25303,6 +25373,9 @@ var init_tui = __esm(async () => {
   await init_build2();
   import_react34 = __toESM(require_react(), 1);
   jsx_dev_runtime = __toESM(require_jsx_dev_runtime(), 1);
+  WEEK = 7 * 86400000;
+  HEAT = ["#20242c", "#7c3d10", "#b5560f", "#e0670f", ORANGE];
+  DOW = ["", "Mon", "", "Wed", "", "Fri", ""];
 });
 
 // src/history.ts

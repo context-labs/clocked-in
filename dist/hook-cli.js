@@ -149,6 +149,25 @@ function fmtDate(ms) {
   const d = new Date(ms);
   return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
 }
+function heatmap(byDay, now, weeks) {
+  const w = Math.max(1, Math.floor(weeks));
+  const grid = Array.from({ length: 7 }, () => new Array(w).fill(0));
+  const todayMid = new Date(now).setHours(0, 0, 0, 0);
+  const thisSunday = todayMid - new Date(todayMid).getDay() * DAY;
+  let max = 0;
+  for (const { day, ms } of byDay) {
+    const dow = new Date(day).getDay();
+    const daySunday = day - dow * DAY;
+    const weeksAgo = Math.round((thisSunday - daySunday) / (7 * DAY));
+    const col = w - 1 - weeksAgo;
+    if (col >= 0 && col < w) {
+      grid[dow][col] += ms;
+      if (grid[dow][col] > max)
+        max = grid[dow][col];
+    }
+  }
+  return { grid, weeks: w, max };
+}
 function fmtDuration(ms) {
   const s = Math.round(ms / 1000);
   if (s < 60)
@@ -162,7 +181,7 @@ function fmtDuration(ms) {
   const d = Math.floor(h / 24);
   return `${d}d ${h % 24}h`;
 }
-var AGENTS, KIND, MONTHS;
+var AGENTS, KIND, MONTHS, DAY = 86400000;
 var init_events = __esm(() => {
   AGENTS = ["claude-code", "codex", "grok", "cursor", "opencode", "pi"];
   KIND = {

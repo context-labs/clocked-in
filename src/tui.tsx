@@ -1,15 +1,53 @@
 import { Box, render, Text, useApp, useInput } from "ink";
 import React, { useEffect, useState } from "react";
 import { allEvents, resetEvents } from "./db.ts";
-import { fmtDate, fmtDuration } from "./events.ts";
+import { fmtDate, fmtDuration, heatmap } from "./events.ts";
 import { share } from "./share.ts";
 import { computeStats, type Stats } from "./stats.ts";
 
 const ORANGE = "#f97316";
+const WEEK = 7 * 86_400_000;
 
 function bar(ms: number, max: number, width = 24): string {
   const n = Math.round((ms / Math.max(1, max)) * width);
   return "█".repeat(n) + "░".repeat(width - n);
+}
+
+// GitHub-style contribution heatmap of wait-per-day. 0 = empty (very dim), then
+// four orange steps by intensity relative to the busiest day.
+const HEAT = ["#20242c", "#7c3d10", "#b5560f", "#e0670f", ORANGE];
+const DOW = ["", "Mon", "", "Wed", "", "Fri", ""];
+const level = (ms: number, max: number) =>
+  ms <= 0 || max <= 0 ? 0 : Math.min(4, Math.ceil((ms / max) * 4));
+
+function Heat({ stats, now }: { stats: Stats; now: number }) {
+  if (!stats.byDay.length || !stats.sinceMs) return null;
+  const weeks = Math.max(4, Math.min(26, Math.ceil((now - stats.sinceMs) / WEEK) + 1));
+  const hm = heatmap(stats.byDay, now, weeks);
+  return (
+    <Box marginTop={1} flexDirection="column">
+      <Text dimColor>wait per day · last {weeks}w</Text>
+      {hm.grid.map((row, dow) => (
+        <Text key={dow}>
+          <Text dimColor>{DOW[dow]!.padEnd(4)}</Text>
+          {row.map((ms, c) => (
+            <Text key={c} color={HEAT[level(ms, hm.max)]}>
+              ▇
+            </Text>
+          ))}
+        </Text>
+      ))}
+      <Text dimColor>
+        {"    less "}
+        {[1, 2, 3, 4].map((l) => (
+          <Text key={l} color={HEAT[l]}>
+            ▇
+          </Text>
+        ))}
+        {" more"}
+      </Text>
+    </Box>
+  );
 }
 
 function App() {
@@ -80,6 +118,8 @@ function App() {
           </Text>
         )}
       </Box>
+
+      <Heat stats={stats} now={Date.now()} />
 
       <Box marginTop={1} flexDirection="column">
         {stats.byAgent.length === 0 ? (

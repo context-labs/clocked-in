@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   fmtDuration,
+  heatmap,
   pairIntervals,
   toolAction,
   toolIntervals,
@@ -131,4 +132,23 @@ test("fmtDuration scales s/m/h/d", () => {
   expect(fmtDuration(90000)).toBe("1m 30s");
   expect(fmtDuration(3_660_000)).toBe("1h 1m");
   expect(fmtDuration(90_000_000)).toBe("1d 1h");
+});
+
+test("heatmap places days into the weekday×week grid (newest column = this week)", () => {
+  const now = Date.parse("2026-08-18T12:00:00"); // a Tuesday (local)
+  const midnight = (s: string) => new Date(Date.parse(s)).setHours(0, 0, 0, 0);
+  const hm = heatmap(
+    [
+      { day: midnight("2026-08-18T00:00:00"), ms: 5000 }, // today (Tue), last column
+      { day: midnight("2026-08-11T00:00:00"), ms: 2000 }, // a week earlier (Tue)
+    ],
+    now,
+    4,
+  );
+  expect(hm.weeks).toBe(4);
+  expect(hm.max).toBe(5000);
+  const tue = new Date(now).getDay();
+  expect(hm.grid[tue]![3]).toBe(5000); // this week
+  expect(hm.grid[tue]![2]).toBe(2000); // last week
+  expect(hm.grid[tue]![0]).toBe(0); // 3 weeks ago: empty
 });

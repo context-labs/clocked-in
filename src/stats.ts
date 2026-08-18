@@ -15,6 +15,7 @@ export type Stats = {
   byModel: ModelRow[]; // per harness → model → effort, sorted desc by ms
   byTool: ToolRow[]; // per tool, sorted desc by ms
   byAction: ActionRow[]; // per tool category (run/edit/read/…), sorted desc by ms
+  byDay: { day: number; ms: number }[]; // local-midnight epoch → wait ms, ascending (for the heatmap)
 };
 
 const DAY_MS = 86_400_000;
@@ -27,6 +28,7 @@ export function computeStats(events: Event[], opts: { days?: number; now?: numbe
 
   const agents = new Map<string, { ms: number; turns: number }>();
   const models = new Map<string, ModelRow>();
+  const days = new Map<number, number>();
   let totalMs = 0;
   let todayMs = 0;
   let sinceMs: number | null = null;
@@ -36,6 +38,8 @@ export function computeStats(events: Event[], opts: { days?: number; now?: numbe
     if (i.start >= startOfToday) todayMs += i.ms;
     if (sinceMs === null || i.start < sinceMs) sinceMs = i.start;
     if (!longest || i.ms > longest.ms) longest = i;
+    const day = new Date(i.start).setHours(0, 0, 0, 0);
+    days.set(day, (days.get(day) ?? 0) + i.ms);
     const g = agents.get(i.agent) ?? { ms: 0, turns: 0 };
     g.ms += i.ms;
     g.turns += 1;
@@ -75,5 +79,6 @@ export function computeStats(events: Event[], opts: { days?: number; now?: numbe
     byModel: [...models.values()].sort((a, b) => b.ms - a.ms),
     byTool: [...tools.values()].sort((a, b) => b.ms - a.ms),
     byAction: [...actions.values()].sort((a, b) => b.ms - a.ms),
+    byDay: [...days].map(([day, ms]) => ({ day, ms })).sort((a, b) => a.day - b.day),
   };
 }

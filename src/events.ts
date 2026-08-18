@@ -152,6 +152,33 @@ export function fmtDate(ms: number): string {
   return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
 }
 
+const DAY = 86_400_000;
+export type Heatmap = { grid: number[][]; weeks: number; max: number };
+
+/**
+ * GitHub-style contribution grid: rows are weekdays (0=Sun..6=Sat), columns are
+ * weeks (oldest→newest, rightmost = current week). grid[weekday][week] = wait ms.
+ * Pure; `now` is passed in so it's deterministic to test.
+ */
+export function heatmap(byDay: { day: number; ms: number }[], now: number, weeks: number): Heatmap {
+  const w = Math.max(1, Math.floor(weeks));
+  const grid = Array.from({ length: 7 }, () => new Array<number>(w).fill(0));
+  const todayMid = new Date(now).setHours(0, 0, 0, 0);
+  const thisSunday = todayMid - new Date(todayMid).getDay() * DAY;
+  let max = 0;
+  for (const { day, ms } of byDay) {
+    const dow = new Date(day).getDay();
+    const daySunday = day - dow * DAY;
+    const weeksAgo = Math.round((thisSunday - daySunday) / (7 * DAY));
+    const col = w - 1 - weeksAgo;
+    if (col >= 0 && col < w) {
+      grid[dow]![col]! += ms;
+      if (grid[dow]![col]! > max) max = grid[dow]![col]!;
+    }
+  }
+  return { grid, weeks: w, max };
+}
+
 export function fmtDuration(ms: number): string {
   const s = Math.round(ms / 1000);
   if (s < 60) return `${s}s`;
