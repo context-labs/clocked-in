@@ -26,13 +26,14 @@ export function db(path = dbPath()): Database {
     session TEXT NOT NULL,
     cwd TEXT,
     model TEXT,
-    effort TEXT
+    effort TEXT,
+    source TEXT NOT NULL DEFAULT 'hook'
   );`);
   d.exec("CREATE INDEX IF NOT EXISTS idx_events_session ON events(session, ts);");
-  // Migrate DBs created before model/effort existed.
-  for (const col of ["model", "effort"]) {
+  // Migrate DBs created before model/effort/history-source existed.
+  for (const definition of ["model TEXT", "effort TEXT", "source TEXT NOT NULL DEFAULT 'hook'"]) {
     try {
-      d.exec(`ALTER TABLE events ADD COLUMN ${col} TEXT;`);
+      d.exec(`ALTER TABLE events ADD COLUMN ${definition};`);
     } catch {
       // column already exists
     }
@@ -44,14 +45,45 @@ export function db(path = dbPath()): Database {
 export function insertEvent(e: Event, path = dbPath()): void {
   db(path)
     .query(
-      "INSERT INTO events (ts, kind, agent, session, cwd, model, effort) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO events (ts, kind, agent, session, cwd, model, effort, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
-    .run(e.ts, e.kind, e.agent, e.session, e.cwd ?? null, e.model ?? null, e.effort ?? null);
+    .run(
+      e.ts,
+      e.kind,
+      e.agent,
+      e.session,
+      e.cwd ?? null,
+      e.model ?? null,
+      e.effort ?? null,
+      e.source ?? "hook",
+    );
+}
+
+export function insertEvents(events: Event[], path = dbPath()): void {
+  if (!events.length) return;
+  const d = db(path);
+  const statement = d.query(
+    "INSERT INTO events (ts, kind, agent, session, cwd, model, effort, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  );
+  d.transaction(() => {
+    for (const e of events) {
+      statement.run(
+        e.ts,
+        e.kind,
+        e.agent,
+        e.session,
+        e.cwd ?? null,
+        e.model ?? null,
+        e.effort ?? null,
+        e.source ?? "hook",
+      );
+    }
+  })();
 }
 
 export function allEvents(path = dbPath()): Event[] {
   return db(path)
-    .query("SELECT ts, kind, agent, session, cwd, model, effort FROM events ORDER BY ts")
+    .query("SELECT ts, kind, agent, session, cwd, model, effort, source FROM events ORDER BY ts")
     .all() as Event[];
 }
 
