@@ -18,13 +18,22 @@ const gitHead = () => {
 const version = process.env.CLOCKED_IN_VERSION || `v${pkgVersion}`;
 const commit = process.env.CLOCKED_IN_COMMIT || gitHead() || "dev";
 
-// asset name ↔ bun --compile target
-const TARGETS = [
+// asset name ↔ bun --compile target. NOTE: @resvg/resvg-js is a per-platform
+// native addon, so a target MUST be built on a host of that platform (its
+// prebuilt is only installed there). CI uses a matrix of native runners and
+// passes CLOCKED_IN_TARGET/CLOCKED_IN_ASSET to build exactly one. With neither
+// set we build all four locally — a convenience that only produces a working
+// binary for the host's own platform; the others are for smoke-checking layout.
+const ALL_TARGETS = [
   ["clocked-in-linux-x64", "bun-linux-x64"],
   ["clocked-in-linux-arm64", "bun-linux-arm64"],
   ["clocked-in-darwin-x64", "bun-darwin-x64"],
   ["clocked-in-darwin-arm64", "bun-darwin-arm64"],
 ] as const;
+const oneAsset = process.env.CLOCKED_IN_ASSET;
+const oneTarget = process.env.CLOCKED_IN_TARGET;
+const TARGETS: readonly (readonly [string, string])[] =
+  oneAsset && oneTarget ? [[oneAsset, oneTarget]] : ALL_TARGETS;
 
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
@@ -35,7 +44,7 @@ for (const [asset, target] of TARGETS) {
   const outfile = resolve(outDir, asset);
   const r = await Bun.build({
     entrypoints: [entry],
-    compile: { target, outfile },
+    compile: { target: target as "bun-linux-x64", outfile }, // validated bun --compile target string
     minify: true,
     define: {
       "process.env.CLOCKED_IN_VERSION": JSON.stringify(version),
